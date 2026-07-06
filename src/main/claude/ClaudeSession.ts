@@ -155,9 +155,15 @@ export class ClaudeSession {
   // one against the same session id, or the new process could read stale/partial state.
   stop(): Promise<void> {
     if (!this.proc) return Promise.resolve();
+    const proc = this.proc;
     return new Promise((resolve) => {
-      this.proc!.once('exit', () => resolve());
-      this.proc!.stdin.end();
+      const escalateTimer = setTimeout(() => proc.kill('SIGTERM'), 3000);
+      proc.once('exit', () => {
+        clearTimeout(escalateTimer);
+        resolve();
+      });
+      proc.kill('SIGINT');
+      proc.stdin.end();
     });
   }
 

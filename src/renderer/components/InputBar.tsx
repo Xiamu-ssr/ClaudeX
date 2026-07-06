@@ -108,6 +108,7 @@ export function InputBar({ mode = 'home', isProcessing = false, onSend, onStop }
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
+      if (isProcessing) return;
       handleSend();
     }
   };

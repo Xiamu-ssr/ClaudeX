@@ -1,5 +1,18 @@
 import { useEffect, useState } from 'react';
-import { ChevronRight, ChevronDown, Folder, File as FileIcon, RefreshCw } from 'lucide-react';
+import {
+  ChevronRight,
+  ChevronDown,
+  Folder,
+  File as FileIcon,
+  FileCode,
+  FileJson,
+  FileText,
+  FileImage,
+  FileArchive,
+  Settings,
+  RefreshCw,
+  type LucideIcon,
+} from 'lucide-react';
 import type { FileTreeEntry } from '../../shared/ipc';
 
 interface FilesTreePanelProps {
@@ -104,6 +117,31 @@ interface TreeNodeProps {
   onSelectFile: (relativePath: string) => void;
 }
 
+function getFileIconInfo(name: string): { Icon: LucideIcon; className: string } {
+  const ext = name.slice(name.lastIndexOf('.') + 1).toLowerCase();
+  switch (ext) {
+    case 'ts': case 'tsx': case 'js': case 'jsx': case 'mjs': case 'cjs':
+    case 'py': case 'go': case 'rs': case 'java': case 'c': case 'cpp': case 'h':
+      return { Icon: FileCode, className: 'text-blue-400' };
+    case 'json': case 'jsonc':
+      return { Icon: FileJson, className: 'text-yellow-400' };
+    case 'md': case 'mdx': case 'txt':
+      return { Icon: FileText, className: 'text-neutral-300' };
+    case 'png': case 'jpg': case 'jpeg': case 'gif': case 'svg': case 'webp': case 'ico':
+      return { Icon: FileImage, className: 'text-purple-400' };
+    case 'css': case 'scss': case 'less':
+      return { Icon: FileCode, className: 'text-pink-400' };
+    case 'html': case 'htm':
+      return { Icon: FileCode, className: 'text-orange-400' };
+    case 'yml': case 'yaml': case 'toml': case 'ini': case 'env':
+      return { Icon: Settings, className: 'text-neutral-400' };
+    case 'zip': case 'tar': case 'gz': case 'rar': case '7z':
+      return { Icon: FileArchive, className: 'text-neutral-400' };
+    default:
+      return { Icon: FileIcon, className: 'text-neutral-400' };
+  }
+}
+
 function TreeNode({ cwd, entry, depth, selectedPath, onSelectFile }: TreeNodeProps) {
   const [expanded, setExpanded] = useState(false);
   const [children, setChildren] = useState<FileTreeEntry[] | null>(null);
@@ -143,7 +181,10 @@ function TreeNode({ cwd, entry, depth, selectedPath, onSelectFile }: TreeNodePro
         {entry.isDirectory ? (
           <Folder size={13} className="shrink-0 text-accent-amber" />
         ) : (
-          <FileIcon size={13} className="shrink-0 text-neutral-400" />
+          (() => {
+            const { Icon, className } = getFileIconInfo(entry.name);
+            return <Icon size={13} className={`shrink-0 ${className}`} />;
+          })()
         )}
         <span className="truncate text-neutral-300">{entry.name}</span>
       </button>

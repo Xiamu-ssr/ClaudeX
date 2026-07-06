@@ -129,6 +129,7 @@ export const useSessionStore = create<SessionStore>((set, get) => {
       // exits/errors WITHOUT the current turn ever resolving normally, still recover the UI
       // (gracefully, not styled as an error) rather than leaving "..." stuck forever.
       const wasExpected = pendingStopSessionId === event.sessionId;
+      if (wasExpected) pendingStopSessionId = null;
       failInFlightTurn(
         event.sessionId,
         wasExpected
@@ -189,12 +190,17 @@ export const useSessionStore = create<SessionStore>((set, get) => {
     });
   });
 
+  // Cleared inside onSessionEvent's process-error/process-exited handling, not here — the
+  // renderer can observe this invoke's own resolution before it observes the corresponding
+  // process-exited push (confirmed empirically, not just a theoretical race), so clearing on
+  // success here can beat the classification check and mislabel a real stop as a crash.
   const stopSessionInternal = async (sessionId: string) => {
     pendingStopSessionId = sessionId;
     try {
       await window.electronAPI.claude.stopSession({ sessionId });
-    } finally {
+    } catch (err) {
       if (pendingStopSessionId === sessionId) pendingStopSessionId = null;
+      throw err;
     }
   };
 
@@ -371,6 +377,7 @@ export const useSessionStore = create<SessionStore>((set, get) => {
     sendMessage: async (text, attachments) => {
       const state = get();
       if (!state.activeSessionId || !state.activeSession) return;
+      if (state.isProcessing) return;
 
       const isFirstMessage = state.activeSession.messages.length === 0;
       const userMsg: ChatMessage = { role: 'user', content: text, attachments };
