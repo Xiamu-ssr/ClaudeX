@@ -16,6 +16,12 @@
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/Xiamu-ssr/ClaudeX/pulls)
 [![stars](https://img.shields.io/github/stars/Xiamu-ssr/ClaudeX?style=social)](https://github.com/Xiamu-ssr/ClaudeX)
 
+![vibe](https://img.shields.io/badge/vibe-immaculate-ff69b4)
+![dogfooded](https://img.shields.io/badge/dogfooded-daily-8A2BE2)
+![mocks](https://img.shields.io/badge/mocks-none-44cc11)
+![built with](https://img.shields.io/badge/built%20with-Claude%20Code-CC785C)
+![fueled by](https://img.shields.io/badge/fueled%20by-coffee-6F4E37)
+
 ![screenshot](docs/screenshot.png)
 
 </div>
