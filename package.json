@@ -1,0 +1,39 @@
+{
+  "name": "ccodebox",
+  "productName": "CCodeBox",
+  "version": "0.1.0",
+  "description": "Desktop GUI for Claude Code",
+  "main": ".vite/build/main.js",
+  "scripts": {
+    "dev": "electron-forge start",
+    "build": "electron-forge make",
+    "package": "electron-forge package",
+    "lint": "tsc --noEmit",
+    "postinstall": "for f in node_modules/node-pty/prebuilds/*/spawn-helper; do [ -f \"$f\" ] && chmod +x \"$f\"; done; true"
+  },
+  "devDependencies": {
+    "@electron-forge/cli": "^7.11.1",
+    "@electron-forge/maker-dmg": "^7.11.1",
+    "@electron-forge/maker-zip": "^7.11.1",
+    "@electron-forge/plugin-vite": "^7.11.1",
+    "@playwright/test": "^1.61.1",
+    "@tailwindcss/vite": "^4.1.0",
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
+    "@vitejs/plugin-react": "^4.5.0",
+    "electron": "^35.7.5",
+    "playwright": "^1.61.1",
+    "tailwindcss": "^4.1.0",
+    "typescript": "^5.9.3",
+    "vite": "^6.3.0"
+  },
+  "dependencies": {
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/xterm": "^6.0.0",
+    "lucide-react": "^0.500.0",
+    "node-pty": "^1.1.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "zustand": "^5.0.0"
+  }
+}

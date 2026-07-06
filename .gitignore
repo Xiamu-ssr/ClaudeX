@@ -1,0 +1,33 @@
+node_modules/
+dist/
+out/
+.vite/
+*.dmg
+
+# Electron
+.webpack/
+
+# Playwright
+test-results/
+playwright-report/
+playwright/.cache/
+
+# Environment & secrets
+.env
+.env.*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Stray build-tool debug logs
+*.log
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Claude
+.claude/

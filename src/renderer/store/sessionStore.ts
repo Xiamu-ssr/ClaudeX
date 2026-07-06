@@ -1,0 +1,385 @@
+import { create } from 'zustand';
+import type { Session, ChatMessage, AssistantTurn, MessageAttachment } from '../types/chat';
+import type {
+  ClaudeSessionEvent,
+  EffortLevel,
+  PermissionMode,
+  ProjectSummary,
+  SessionListEntry,
+  ModelProviderConfig,
+  ShowInFinderResponse,
+  CreateWorktreeResponse,
+  ForkSessionResponse,
+} from '../../shared/ipc';
+
+const DEFAULT_PROVIDER_ID = 'builtin-anthropic';
+const DEFAULT_MODEL_ID = 'claude-sonnet-5';
+
+export type RightPanelTab = 'files' | 'review' | 'terminal' | 'browser';
+
+// Defense-in-depth safety net: if an in-flight turn goes this long with zero progress
+// (no new step/response delta), treat it as hung and surface an error rather than leaving
+// the "..." indicator spinning forever. Catches any hang cause, known or not yet identified —
+// see CCodeBox project memory for the investigation that motivated this.
+const WATCHDOG_TIMEOUT_MS = 90_000;
+
+interface SessionStore {
+  activeSessionId: string | null;
+  activeSession: Session | null;
+  isProcessing: boolean;
+  projects: ProjectSummary[];
+  sessionsByProject: Record<string, SessionListEntry[]>;
+  selectedProjectCwd: string | null;
+  permissionMode: PermissionMode;
+  // null = don't pass --effort at all, deferring to the CLI's own default (which may
+  // itself be driven by the user's real CLAUDE_CODE_EFFORT_LEVEL env var) rather than
+  // CCodeBox silently overriding it with an invented default.
+  effortLevel: EffortLevel | null;
+  modelProviders: ModelProviderConfig[];
+  selectedProviderId: string;
+  selectedModelId: string;
+  rightPanelOpen: boolean;
+  rightPanelTab: RightPanelTab;
+  setSelectedProjectCwd: (cwd: string) => void;
+  setPermissionMode: (mode: PermissionMode) => void;
+  setEffortLevel: (level: EffortLevel | null) => void;
+  setRightPanelOpen: (open: boolean) => void;
+  toggleRightPanel: () => void;
+  setRightPanelTab: (tab: RightPanelTab) => void;
+  loadProjectList: () => Promise<void>;
+  setProjectPinned: (cwd: string, pinned: boolean) => Promise<void>;
+  renameProject: (cwd: string, customName: string) => Promise<void>;
+  removeProject: (cwd: string) => Promise<void>;
+  archiveSession: (sessionId: string) => Promise<void>;
+  removeSession: (sessionId: string) => Promise<void>;
+  showInFinder: (path: string) => Promise<ShowInFinderResponse>;
+  createWorktree: (cwd: string, branch: string) => Promise<CreateWorktreeResponse>;
+  forkSession: (cwd: string, sessionId: string) => Promise<ForkSessionResponse>;
+  loadModelProviders: () => Promise<void>;
+  saveModelProvider: (provider: ModelProviderConfig) => Promise<void>;
+  deleteModelProvider: (id: string) => Promise<void>;
+  setSelectedModel: (providerId: string, modelId: string) => void;
+  changeModelMidConversation: (providerId: string, modelId: string, effort: EffortLevel | null) => Promise<void>;
+  startNewChat: (cwd: string, projectName: string) => Promise<void>;
+  openHistoricalSession: (cwd: string, sessionId: string) => Promise<void>;
+  sendMessage: (text: string, attachments?: MessageAttachment[]) => Promise<void>;
+  stopSession: () => Promise<void>;
+}
+
+function truncateTitle(text: string): string {
+  return text.length > 20 ? `${text.slice(0, 20)}...` : text;
+}
+
+function emptySession(id: string, cwd: string, projectName: string): Session {
+  return { id, cwd, title: '新对话', projectName, lastActiveTime: '刚刚', messages: [] };
+}
+
+export const useSessionStore = create<SessionStore>((set, get) => {
+  // Tracks a sessionId currently undergoing a deliberate, user/store-initiated shutdown
+  // (explicit "stop" or the stop+respawn done by changeModelMidConversation) so the
+  // process-exited event that naturally follows isn't mistaken for a crash.
+  let pendingStopSessionId: string | null = null;
+  let watchdogTimer: ReturnType<typeof setTimeout> | null = null;
+
+  const clearWatchdog = () => {
+    if (watchdogTimer) {
+      clearTimeout(watchdogTimer);
+      watchdogTimer = null;
+    }
+  };
+
+  // Resolves whatever turn is still in-flight for this session instead of leaving it stuck
+  // on "..." forever. No-ops if the turn already completed normally (the common case: the
+  // CLI finishes an in-flight turn before honoring a deliberate stop's stdin EOF).
+  const failInFlightTurn = (sessionId: string, message: string, isError = true) => {
+    clearWatchdog();
+    set((s) => {
+      if (!s.activeSession || s.activeSession.id !== sessionId) return s;
+      const messages = [...s.activeSession.messages];
+      const lastIdx = messages.length - 1;
+      const last = messages[lastIdx];
+      if (!last || last.role !== 'assistant' || !last.turn.isProcessing) return s;
+
+      const turn: AssistantTurn = {
+        ...last.turn,
+        isProcessing: false,
+        isError,
+        response: last.turn.response || message,
+      };
+      messages[lastIdx] = { role: 'assistant', turn };
+      return { activeSession: { ...s.activeSession, messages }, isProcessing: false };
+    });
+  };
+
+  const armWatchdog = (sessionId: string) => {
+    clearWatchdog();
+    watchdogTimer = setTimeout(() => {
+      failInFlightTurn(sessionId, '⚠️ 响应超时（90 秒无新进展），连接可能已中断，请重试。');
+    }, WATCHDOG_TIMEOUT_MS);
+  };
+
+  window.electronAPI.claude.onSessionEvent((event: ClaudeSessionEvent) => {
+    const state = get();
+    if (!state.activeSession || state.activeSession.id !== event.sessionId) return;
+
+    if (event.kind === 'process-error' || event.kind === 'process-exited') {
+      // A deliberate stop (explicit "stop" or changeModelMidConversation's stop+respawn)
+      // always produces a process-exited — that's expected, not a crash. But if it somehow
+      // exits/errors WITHOUT the current turn ever resolving normally, still recover the UI
+      // (gracefully, not styled as an error) rather than leaving "..." stuck forever.
+      const wasExpected = pendingStopSessionId === event.sessionId;
+      failInFlightTurn(
+        event.sessionId,
+        wasExpected
+          ? '（已停止）'
+          : event.kind === 'process-error'
+            ? `⚠️ Claude 进程异常：${event.message}`
+            : `⚠️ Claude 进程意外退出（code ${event.code ?? '未知'}），请重试。`,
+        !wasExpected
+      );
+      return;
+    }
+
+    if (
+      event.kind === 'turn-step-appended' ||
+      event.kind === 'turn-step-updated' ||
+      event.kind === 'turn-response-updated'
+    ) {
+      armWatchdog(event.sessionId);
+    } else if (event.kind === 'turn-completed') {
+      clearWatchdog();
+    }
+
+    set((s) => {
+      if (!s.activeSession) return s;
+      const messages = [...s.activeSession.messages];
+      const lastIdx = messages.length - 1;
+      const last = messages[lastIdx];
+      if (!last || last.role !== 'assistant') return s;
+
+      const turn: AssistantTurn = { ...last.turn };
+
+      switch (event.kind) {
+        case 'turn-step-appended':
+          turn.steps = [...turn.steps, event.step];
+          break;
+        case 'turn-step-updated': {
+          const steps = [...turn.steps];
+          steps[event.index] = event.step;
+          turn.steps = steps;
+          break;
+        }
+        case 'turn-response-updated':
+          turn.response = event.response;
+          break;
+        case 'turn-completed':
+          turn.isProcessing = false;
+          turn.processingTime = event.processingTime;
+          turn.isError = event.isError;
+          break;
+      }
+
+      messages[lastIdx] = { role: 'assistant', turn };
+      return {
+        activeSession: { ...s.activeSession, messages },
+        isProcessing: event.kind === 'turn-completed' ? false : s.isProcessing,
+      };
+    });
+  });
+
+  const stopSessionInternal = async (sessionId: string) => {
+    pendingStopSessionId = sessionId;
+    try {
+      await window.electronAPI.claude.stopSession({ sessionId });
+    } finally {
+      if (pendingStopSessionId === sessionId) pendingStopSessionId = null;
+    }
+  };
+
+  return {
+    activeSessionId: null,
+    activeSession: null,
+    isProcessing: false,
+    projects: [],
+    sessionsByProject: {},
+    selectedProjectCwd: null,
+    permissionMode: 'bypassPermissions',
+    effortLevel: null,
+    modelProviders: [],
+    selectedProviderId: DEFAULT_PROVIDER_ID,
+    selectedModelId: DEFAULT_MODEL_ID,
+    rightPanelOpen: false,
+    rightPanelTab: 'files',
+
+    setSelectedProjectCwd: (cwd) => set({ selectedProjectCwd: cwd }),
+    setPermissionMode: (mode) => set({ permissionMode: mode }),
+    setEffortLevel: (level) => set({ effortLevel: level }),
+    setRightPanelOpen: (open) => set({ rightPanelOpen: open }),
+    toggleRightPanel: () => set((s) => ({ rightPanelOpen: !s.rightPanelOpen })),
+    setRightPanelTab: (tab) => set({ rightPanelTab: tab }),
+
+    loadProjectList: async () => {
+      const { projects } = await window.electronAPI.claude.listProjects();
+      set((s) => {
+        const selectedStillExists = s.selectedProjectCwd !== null && projects.some((p) => p.cwd === s.selectedProjectCwd);
+        return {
+          projects,
+          selectedProjectCwd: selectedStillExists ? s.selectedProjectCwd : (projects[0]?.cwd ?? null),
+        };
+      });
+
+      const sessionsByProject: Record<string, SessionListEntry[]> = {};
+      for (const project of projects) {
+        const { sessions } = await window.electronAPI.claude.listSessionsForProject({ cwd: project.cwd });
+        sessionsByProject[project.cwd] = sessions;
+      }
+      set({ sessionsByProject });
+    },
+
+    setProjectPinned: async (cwd, pinned) => {
+      await window.electronAPI.claude.setProjectPinned({ cwd, pinned });
+      await get().loadProjectList();
+    },
+
+    renameProject: async (cwd, customName) => {
+      await window.electronAPI.claude.renameProject({ cwd, customName });
+      await get().loadProjectList();
+    },
+
+    removeProject: async (cwd) => {
+      await window.electronAPI.claude.removeProject({ cwd });
+      await get().loadProjectList();
+    },
+
+    archiveSession: async (sessionId) => {
+      await window.electronAPI.claude.archiveSession({ sessionId });
+      await get().loadProjectList();
+    },
+
+    removeSession: async (sessionId) => {
+      await window.electronAPI.claude.removeSession({ sessionId });
+      await get().loadProjectList();
+    },
+
+    showInFinder: async (path) => {
+      return window.electronAPI.claude.showInFinder({ path });
+    },
+
+    createWorktree: async (cwd, branch) => {
+      return window.electronAPI.claude.createWorktree({ cwd, branch });
+    },
+
+    forkSession: async (cwd, sessionId) => {
+      const result = await window.electronAPI.claude.forkSession({ cwd, sourceSessionId: sessionId });
+      if (result.ok && result.newSessionId) {
+        await get().loadProjectList();
+        await get().openHistoricalSession(cwd, result.newSessionId);
+      }
+      return result;
+    },
+
+    loadModelProviders: async () => {
+      const { providers } = await window.electronAPI.claude.listModelProviders();
+      set({ modelProviders: providers });
+    },
+
+    saveModelProvider: async (provider) => {
+      const { providers } = await window.electronAPI.claude.saveModelProvider({ provider });
+      set({ modelProviders: providers });
+    },
+
+    deleteModelProvider: async (id) => {
+      const { providers } = await window.electronAPI.claude.deleteModelProvider({ id });
+      set((s) => ({
+        modelProviders: providers,
+        selectedProviderId: s.selectedProviderId === id ? DEFAULT_PROVIDER_ID : s.selectedProviderId,
+        selectedModelId: s.selectedProviderId === id ? DEFAULT_MODEL_ID : s.selectedModelId,
+      }));
+    },
+
+    setSelectedModel: (providerId, modelId) => set({ selectedProviderId: providerId, selectedModelId: modelId }),
+
+    changeModelMidConversation: async (providerId, modelId, effort) => {
+      const state = get();
+      if (!state.activeSessionId || !state.activeSession) {
+        set({ selectedProviderId: providerId, selectedModelId: modelId, effortLevel: effort });
+        return;
+      }
+      const provider = state.modelProviders.find((p) => p.id === providerId);
+      const { cwd, id: sessionId } = state.activeSession;
+
+      set({ isProcessing: true });
+      await stopSessionInternal(sessionId);
+      await window.electronAPI.claude.startOrResumeSession({
+        cwd,
+        resumeSessionId: sessionId,
+        permissionMode: state.permissionMode,
+        model: modelId,
+        effort: effort ?? undefined,
+        extraEnv: provider?.env,
+      });
+      set({ selectedProviderId: providerId, selectedModelId: modelId, effortLevel: effort, isProcessing: false });
+    },
+
+    startNewChat: async (cwd, projectName) => {
+      const { permissionMode, effortLevel, modelProviders, selectedProviderId, selectedModelId } = get();
+      const provider = modelProviders.find((p) => p.id === selectedProviderId);
+      const { sessionId } = await window.electronAPI.claude.startOrResumeSession({
+        cwd,
+        permissionMode,
+        model: selectedModelId,
+        effort: effortLevel ?? undefined,
+        extraEnv: provider?.env,
+      });
+      set({
+        activeSessionId: sessionId,
+        activeSession: emptySession(sessionId, cwd, projectName),
+        isProcessing: false,
+      });
+    },
+
+    openHistoricalSession: async (cwd, sessionId) => {
+      const { session } = await window.electronAPI.claude.loadHistoricalSession({ cwd, sessionId });
+      await window.electronAPI.claude.startOrResumeSession({ cwd, resumeSessionId: sessionId });
+      set({ activeSessionId: sessionId, activeSession: session, isProcessing: false });
+    },
+
+    sendMessage: async (text, attachments) => {
+      const state = get();
+      if (!state.activeSessionId || !state.activeSession) return;
+
+      const isFirstMessage = state.activeSession.messages.length === 0;
+      const userMsg: ChatMessage = { role: 'user', content: text, attachments };
+      const placeholder: ChatMessage = {
+        role: 'assistant',
+        turn: { processingTime: 0, steps: [], response: '', isProcessing: true },
+      };
+
+      set({
+        activeSession: {
+          ...state.activeSession,
+          title: isFirstMessage ? truncateTitle(text) : state.activeSession.title,
+          messages: [...state.activeSession.messages, userMsg, placeholder],
+        },
+        isProcessing: true,
+      });
+
+      armWatchdog(state.activeSessionId);
+      const outgoingAttachments = attachments?.map((a) => ({
+        mimeType: a.mimeType,
+        base64Data: a.dataUrl.slice(a.dataUrl.indexOf(',') + 1),
+      }));
+      await window.electronAPI.claude.sendUserMessage({
+        sessionId: state.activeSessionId,
+        text,
+        attachments: outgoingAttachments,
+      });
+    },
+
+    stopSession: async () => {
+      const state = get();
+      if (!state.activeSessionId) return;
+      await stopSessionInternal(state.activeSessionId);
+    },
+  };
+});
