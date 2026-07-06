@@ -32,6 +32,7 @@ export const IPC = {
   archiveSession: 'claude:archiveSession',
   removeSession: 'claude:removeSession',
   showInFinder: 'claude:showInFinder',
+  openExternal: 'claude:openExternal',
   createWorktree: 'claude:createWorktree',
   forkSession: 'claude:forkSession',
   getEnvConfig: 'claude:getEnvConfig',
@@ -161,6 +162,13 @@ export interface ShowInFinderRequest {
 export interface ShowInFinderResponse {
   ok: boolean;
   message?: string;
+}
+export interface OpenExternalRequest {
+  url: string;
+}
+
+export interface OpenExternalResponse {
+  ok: boolean;
 }
 export interface CreateWorktreeRequest {
   cwd: string;

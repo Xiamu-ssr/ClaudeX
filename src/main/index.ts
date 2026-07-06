@@ -41,6 +41,7 @@ import {
   type ArchiveSessionRequest,
   type RemoveSessionRequest,
   type ShowInFinderRequest,
+  type OpenExternalRequest,
   type CreateWorktreeRequest,
   type ForkSessionRequest,
   type InstallPluginRequest,
@@ -227,6 +228,20 @@ ipcMain.handle(IPC.showInFinder, (_event, req: ShowInFinderRequest) => {
     return { ok: false, message: '路径不存在' };
   }
   shell.showItemInFolder(req.path);
+  return { ok: true };
+});
+
+ipcMain.handle(IPC.openExternal, async (_event, req: OpenExternalRequest) => {
+  let parsed: URL;
+  try {
+    parsed = new URL(req.url);
+  } catch {
+    return { ok: false };
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    return { ok: false };
+  }
+  await shell.openExternal(req.url);
   return { ok: true };
 });
 

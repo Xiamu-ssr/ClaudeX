@@ -6,6 +6,7 @@ export default {
   packagerConfig: {
     name: 'CCodeBox',
     executableName: 'ccodebox',
+    icon: 'assets/icon.icns',
     // @electron-forge/plugin-vite auto-sets packagerConfig.ignore to exclude everything
     // except the '.vite' build output, on the assumption that Vite bundles all deps into
     // the JS. That's true for everything except node-pty, which vite.main.config.ts
@@ -31,7 +32,7 @@ export default {
       unpack: '**/node-pty/**/*',
     },
   },
-  makers: [new MakerDMG({}), new MakerZIP({})],
+  makers: [new MakerDMG({ icon: 'assets/icon.icns' }), new MakerZIP({})],
   plugins: [
     new VitePlugin({
       build: [

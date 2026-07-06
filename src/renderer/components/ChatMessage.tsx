@@ -14,6 +14,7 @@ import type { ChatMessage as ChatMessageType, Step, AssistantTurn, MessageAttach
 import { RichText } from './RichText';
 import { ToolUseBlock } from './ToolUseBlock';
 import { FileCard } from './FileCard';
+import { formatDuration } from '../utils/formatDuration';
 
 interface ChatMessageProps {
   message: ChatMessageType;
@@ -68,6 +69,18 @@ function AssistantBlock({ turn }: { turn: AssistantTurn }) {
     wasProcessing.current = turn.isProcessing;
   }, [turn.isProcessing]);
 
+  const [liveElapsed, setLiveElapsed] = useState(0);
+
+  useEffect(() => {
+    if (!turn.isProcessing || turn.startedAt === undefined) return;
+    const tick = () => setLiveElapsed(Math.floor((Date.now() - turn.startedAt!) / 1000));
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [turn.isProcessing, turn.startedAt]);
+
+  const displaySeconds = turn.isProcessing ? liveElapsed : turn.processingTime;
+
   const hasAnyContent = turn.steps.length > 0 || turn.response.length > 0;
 
   return (
@@ -82,7 +95,7 @@ function AssistantBlock({ turn }: { turn: AssistantTurn }) {
             onClick={() => setStepsCollapsed(!stepsCollapsed)}
             className="flex items-center gap-1.5 text-sm text-text-secondary hover:text-neutral-400 transition-colors py-1"
           >
-            <span>已处理 {turn.processingTime}s</span>
+            <span>已处理 {formatDuration(displaySeconds)}</span>
             {stepsCollapsed ? (
               <ChevronRight size={14} />
             ) : (

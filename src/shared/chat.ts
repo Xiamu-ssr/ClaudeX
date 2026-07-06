@@ -35,6 +35,8 @@ export interface AssistantTurn {
   files?: FileAttachment[];
   isProcessing?: boolean;
   isError?: boolean;
+  // Only set for in-flight turns created this session, not historical ones loaded from transcripts.
+  startedAt?: number;
 }
 
 export interface UserMessage {

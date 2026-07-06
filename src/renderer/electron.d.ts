@@ -48,6 +48,8 @@ import type {
   RemoveSessionRequest,
   ShowInFinderRequest,
   ShowInFinderResponse,
+  OpenExternalRequest,
+  OpenExternalResponse,
   CreateWorktreeRequest,
   CreateWorktreeResponse,
   ForkSessionRequest,
@@ -95,6 +97,7 @@ export interface ElectronAPI {
     archiveSession: (req: ArchiveSessionRequest) => Promise<void>;
     removeSession: (req: RemoveSessionRequest) => Promise<void>;
     showInFinder: (req: ShowInFinderRequest) => Promise<ShowInFinderResponse>;
+    openExternal: (req: OpenExternalRequest) => Promise<OpenExternalResponse>;
     createWorktree: (req: CreateWorktreeRequest) => Promise<CreateWorktreeResponse>;
     forkSession: (req: ForkSessionRequest) => Promise<ForkSessionResponse>;
     getEnvConfig: () => Promise<GetEnvConfigResponse>;

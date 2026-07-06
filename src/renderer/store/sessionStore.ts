@@ -383,7 +383,7 @@ export const useSessionStore = create<SessionStore>((set, get) => {
       const userMsg: ChatMessage = { role: 'user', content: text, attachments };
       const placeholder: ChatMessage = {
         role: 'assistant',
-        turn: { processingTime: 0, steps: [], response: '', isProcessing: true },
+        turn: { processingTime: 0, steps: [], response: '', isProcessing: true, startedAt: Date.now() },
       };
 
       set({

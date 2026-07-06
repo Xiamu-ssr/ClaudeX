@@ -114,7 +114,7 @@ export function Sidebar({ currentView, onNavigate }: SidebarProps) {
   });
 
   return (
-    <aside className="w-60 bg-sidebar flex flex-col h-full shrink-0 relative">
+    <aside className="w-60 bg-sidebar bg-gradient-to-b from-white/[0.08] via-white/[0.03] to-white/[0.01] backdrop-blur-2xl flex flex-col h-full shrink-0 relative border-r border-white/[0.07]">
       {/* Traffic light spacing */}
       <div className="h-[52px] drag shrink-0" />
 

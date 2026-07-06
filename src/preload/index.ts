@@ -48,6 +48,8 @@ import {
   type RemoveSessionRequest,
   type ShowInFinderRequest,
   type ShowInFinderResponse,
+  type OpenExternalRequest,
+  type OpenExternalResponse,
   type CreateWorktreeRequest,
   type CreateWorktreeResponse,
   type ForkSessionRequest,
@@ -111,6 +113,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     removeSession: (req: RemoveSessionRequest): Promise<void> => ipcRenderer.invoke(IPC.removeSession, req),
     showInFinder: (req: ShowInFinderRequest): Promise<ShowInFinderResponse> =>
       ipcRenderer.invoke(IPC.showInFinder, req),
+    openExternal: (req: OpenExternalRequest): Promise<OpenExternalResponse> =>
+      ipcRenderer.invoke(IPC.openExternal, req),
     createWorktree: (req: CreateWorktreeRequest): Promise<CreateWorktreeResponse> =>
       ipcRenderer.invoke(IPC.createWorktree, req),
     forkSession: (req: ForkSessionRequest): Promise<ForkSessionResponse> =>
