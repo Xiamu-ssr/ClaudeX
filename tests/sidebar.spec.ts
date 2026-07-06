@@ -114,6 +114,27 @@ test.describe('sidebar: project menu', () => {
     await expect(page.locator('aside')).not.toContainText(nameA);
     await expect(page.locator('aside')).toContainText(nameB);
   });
+
+  test('collapsing a project persists across app restart', async () => {
+    const nameA = path.basename(projectADir);
+    const nameB = path.basename(projectBDir);
+
+    await projectRow(page, nameA).getByLabel('折叠项目').click();
+    await expect(page.locator('aside')).not.toContainText('hello from a');
+
+    await closeApp(app);
+    app = await electron.launch({
+      args: ['.', `--user-data-dir=${userDataDir}`],
+      env: { ...process.env, CCODEBOX_CLAUDE_BIN: FAKE_CLAUDE_BIN, CCODEBOX_PROJECTS_DIR: projectsDir },
+    });
+    page = await app.firstWindow();
+    await page.waitForLoadState('domcontentloaded');
+    await expect(page.locator('aside')).toContainText(nameA);
+    await expect(page.locator('aside')).toContainText(nameB);
+
+    await expect(page.locator('aside')).not.toContainText('hello from a');
+    await expect(page.locator('aside')).toContainText('hello from b');
+  });
 });
 
 test.describe('chat view: session menu', () => {
@@ -181,5 +202,52 @@ test.describe('chat view: session menu', () => {
     // Let the in-flight turn resolve (fake CLI replies "fake-reply: <text>" after ~400ms) so
     // afterEach's app.close() isn't racing a still-in-flight turn.
     await expect(page.getByText('fake-reply: another message')).toBeVisible();
+  });
+});
+
+test.describe('sidebar: session list cap', () => {
+  let userDataDir: string;
+  let projectsDir: string;
+  let repoDir: string;
+  let app: ElectronApplication;
+  let page: Page;
+
+  test.beforeEach(async () => {
+    userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ccodebox-test-userdata-'));
+    projectsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ccodebox-test-projects-'));
+    repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ccodebox-test-repo-'));
+
+    for (let i = 1; i <= 6; i++) {
+      writeSessionFile(projectsDir, 'proj', `session-${i}`, repoDir, `message ${i}`);
+      const filePath = path.join(projectsDir, repoDir.replace(/\//g, '-'), `session-${i}.jsonl`);
+      const t = new Date(Date.now() - (6 - i) * 60_000);
+      fs.utimesSync(filePath, t, t);
+    }
+
+    app = await electron.launch({
+      args: ['.', `--user-data-dir=${userDataDir}`],
+      env: { ...process.env, CCODEBOX_CLAUDE_BIN: FAKE_CLAUDE_BIN, CCODEBOX_PROJECTS_DIR: projectsDir },
+    });
+    page = await app.firstWindow();
+    await page.waitForLoadState('domcontentloaded');
+    await expect(page.locator('aside')).toContainText(path.basename(repoDir));
+  });
+
+  test.afterEach(async () => {
+    await closeApp(app);
+    fs.rmSync(userDataDir, { recursive: true, force: true });
+    fs.rmSync(projectsDir, { recursive: true, force: true });
+    fs.rmSync(repoDir, { recursive: true, force: true });
+  });
+
+  test('only 5 sessions render by default, with an expand affordance for the rest', async () => {
+    for (let i = 2; i <= 6; i++) {
+      await expect(page.getByRole('button', { name: `message ${i}` })).toBeVisible();
+    }
+    await expect(page.getByRole('button', { name: 'message 1' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: '显示更多（还有 1 个）' })).toBeVisible();
+
+    await page.getByRole('button', { name: '显示更多（还有 1 个）' }).click();
+    await expect(page.getByRole('button', { name: 'message 1' })).toBeVisible();
   });
 });

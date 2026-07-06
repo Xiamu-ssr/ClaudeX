@@ -48,6 +48,7 @@ interface SessionStore {
   setRightPanelTab: (tab: RightPanelTab) => void;
   loadProjectList: () => Promise<void>;
   setProjectPinned: (cwd: string, pinned: boolean) => Promise<void>;
+  setProjectCollapsed: (cwd: string, collapsed: boolean) => Promise<void>;
   renameProject: (cwd: string, customName: string) => Promise<void>;
   removeProject: (cwd: string) => Promise<void>;
   archiveSession: (sessionId: string) => Promise<void>;
@@ -148,6 +149,7 @@ export const useSessionStore = create<SessionStore>((set, get) => {
       armWatchdog(event.sessionId);
     } else if (event.kind === 'turn-completed') {
       clearWatchdog();
+      get().loadProjectList();
     }
 
     set((s) => {
@@ -238,6 +240,11 @@ export const useSessionStore = create<SessionStore>((set, get) => {
 
     setProjectPinned: async (cwd, pinned) => {
       await window.electronAPI.claude.setProjectPinned({ cwd, pinned });
+      await get().loadProjectList();
+    },
+
+    setProjectCollapsed: async (cwd, collapsed) => {
+      await window.electronAPI.claude.setProjectCollapsed({ cwd, collapsed });
       await get().loadProjectList();
     },
 
@@ -336,11 +343,28 @@ export const useSessionStore = create<SessionStore>((set, get) => {
         activeSession: emptySession(sessionId, cwd, projectName),
         isProcessing: false,
       });
+      await get().loadProjectList();
     },
 
     openHistoricalSession: async (cwd, sessionId) => {
+      const state = get();
+      if (state.activeSessionId === sessionId) return;
+      if (state.activeSessionId) {
+        await stopSessionInternal(state.activeSessionId);
+      }
+
+      set({ isProcessing: true });
+      const { permissionMode, effortLevel, modelProviders, selectedProviderId, selectedModelId } = state;
+      const provider = modelProviders.find((p) => p.id === selectedProviderId);
       const { session } = await window.electronAPI.claude.loadHistoricalSession({ cwd, sessionId });
-      await window.electronAPI.claude.startOrResumeSession({ cwd, resumeSessionId: sessionId });
+      await window.electronAPI.claude.startOrResumeSession({
+        cwd,
+        resumeSessionId: sessionId,
+        permissionMode,
+        model: selectedModelId,
+        effort: effortLevel ?? undefined,
+        extraEnv: provider?.env,
+      });
       set({ activeSessionId: sessionId, activeSession: session, isProcessing: false });
     },
 

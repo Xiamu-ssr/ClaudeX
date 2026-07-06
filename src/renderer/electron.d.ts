@@ -41,6 +41,7 @@ import type {
   GetFilePreviewRequest,
   GetFilePreviewResponse,
   SetProjectPinnedRequest,
+  SetProjectCollapsedRequest,
   RenameProjectRequest,
   RemoveProjectRequest,
   ArchiveSessionRequest,
@@ -88,6 +89,7 @@ export interface ElectronAPI {
     listDirEntries: (req: ListDirEntriesRequest) => Promise<ListDirEntriesResponse>;
     getFilePreview: (req: GetFilePreviewRequest) => Promise<GetFilePreviewResponse>;
     setProjectPinned: (req: SetProjectPinnedRequest) => Promise<void>;
+    setProjectCollapsed: (req: SetProjectCollapsedRequest) => Promise<void>;
     renameProject: (req: RenameProjectRequest) => Promise<void>;
     removeProject: (req: RemoveProjectRequest) => Promise<void>;
     archiveSession: (req: ArchiveSessionRequest) => Promise<void>;

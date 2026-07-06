@@ -41,6 +41,7 @@ import {
   type GetFilePreviewRequest,
   type GetFilePreviewResponse,
   type SetProjectPinnedRequest,
+  type SetProjectCollapsedRequest,
   type RenameProjectRequest,
   type RemoveProjectRequest,
   type ArchiveSessionRequest,
@@ -102,6 +103,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke(IPC.getFilePreview, req),
     setProjectPinned: (req: SetProjectPinnedRequest): Promise<void> =>
       ipcRenderer.invoke(IPC.setProjectPinned, req),
+    setProjectCollapsed: (req: SetProjectCollapsedRequest): Promise<void> =>
+      ipcRenderer.invoke(IPC.setProjectCollapsed, req),
     renameProject: (req: RenameProjectRequest): Promise<void> => ipcRenderer.invoke(IPC.renameProject, req),
     removeProject: (req: RemoveProjectRequest): Promise<void> => ipcRenderer.invoke(IPC.removeProject, req),
     archiveSession: (req: ArchiveSessionRequest): Promise<void> => ipcRenderer.invoke(IPC.archiveSession, req),

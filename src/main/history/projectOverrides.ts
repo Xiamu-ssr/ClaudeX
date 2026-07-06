@@ -7,6 +7,7 @@ export interface ProjectOverride {
   pinned?: boolean;
   customName?: string;
   removed?: boolean;
+  collapsed?: boolean;
 }
 export type ProjectOverrides = Record<string, ProjectOverride>;
 
@@ -51,5 +52,11 @@ export function renameProject(cwd: string, customName: string, configPath: strin
 export function removeProject(cwd: string, configPath: string = defaultConfigPath()): void {
   const overrides = readProjectOverrides(configPath);
   overrides[cwd] = { ...overrides[cwd], removed: true };
+  writeProjectOverrides(overrides, configPath);
+}
+
+export function setProjectCollapsed(cwd: string, collapsed: boolean, configPath: string = defaultConfigPath()): void {
+  const overrides = readProjectOverrides(configPath);
+  overrides[cwd] = { ...overrides[cwd], collapsed };
   writeProjectOverrides(overrides, configPath);
 }

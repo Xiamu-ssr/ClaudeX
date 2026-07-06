@@ -115,6 +115,7 @@ export function listProjectDirs(
       sessionCount: jsonlFiles.length,
       lastActiveAt,
       pinned: override?.pinned ?? false,
+      collapsed: override?.collapsed ?? false,
     });
   }
 

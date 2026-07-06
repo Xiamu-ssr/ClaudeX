@@ -5,7 +5,7 @@ import { SessionManager } from './claude/SessionManager';
 import { TerminalManager } from './terminal/TerminalManager';
 import { listProjectDirs, listSessionsInProject, loadHistoricalSession, computeForkCutoffs } from './history/historyReader';
 import { listModelProviders, saveModelProvider, deleteModelProvider } from './modelProviders';
-import { setProjectPinned, renameProject, removeProject } from './history/projectOverrides';
+import { setProjectPinned, setProjectCollapsed, renameProject, removeProject } from './history/projectOverrides';
 import { setSessionArchived, removeSession } from './history/sessionOverrides';
 import { forkSession } from './history/sessionForker';
 import { loadPluginCatalog, listConfiguredMcpServers, installPlugin, uninstallPlugin } from './plugins/pluginCatalog';
@@ -35,6 +35,7 @@ import {
   type ListDirEntriesRequest,
   type GetFilePreviewRequest,
   type SetProjectPinnedRequest,
+  type SetProjectCollapsedRequest,
   type RenameProjectRequest,
   type RemoveProjectRequest,
   type ArchiveSessionRequest,
@@ -199,6 +200,10 @@ ipcMain.handle(IPC.getFilePreview, (_event, req: GetFilePreviewRequest) => {
 
 ipcMain.handle(IPC.setProjectPinned, (_event, req: SetProjectPinnedRequest) => {
   setProjectPinned(req.cwd, req.pinned);
+});
+
+ipcMain.handle(IPC.setProjectCollapsed, (_event, req: SetProjectCollapsedRequest) => {
+  setProjectCollapsed(req.cwd, req.collapsed);
 });
 
 ipcMain.handle(IPC.renameProject, (_event, req: RenameProjectRequest) => {

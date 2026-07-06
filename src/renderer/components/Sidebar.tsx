@@ -40,7 +40,7 @@ export function Sidebar({ currentView, onNavigate }: SidebarProps) {
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [authStatus, setAuthStatus] = useState<AuthStatus | null>(null);
-  const [collapsedProjects, setCollapsedProjects] = useState<Record<string, boolean>>({});
+  const [expandedSessionLists, setExpandedSessionLists] = useState<Record<string, boolean>>({});
   const [openMenuCwd, setOpenMenuCwd] = useState<string | null>(null);
   const [renamingCwd, setRenamingCwd] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
@@ -53,6 +53,7 @@ export function Sidebar({ currentView, onNavigate }: SidebarProps) {
   const loadModelProviders = useSessionStore((s) => s.loadModelProviders);
   const setSelectedProjectCwd = useSessionStore((s) => s.setSelectedProjectCwd);
   const renameProject = useSessionStore((s) => s.renameProject);
+  const setProjectCollapsed = useSessionStore((s) => s.setProjectCollapsed);
 
   useEffect(() => {
     loadProjectList();
@@ -72,8 +73,8 @@ export function Sidebar({ currentView, onNavigate }: SidebarProps) {
     });
   };
 
-  const toggleCollapsed = (cwd: string) => {
-    setCollapsedProjects((prev) => ({ ...prev, [cwd]: !prev[cwd] }));
+  const toggleCollapsed = (cwd: string, collapsed: boolean) => {
+    setProjectCollapsed(cwd, !collapsed);
   };
 
   const commitRename = () => {
@@ -91,6 +92,19 @@ export function Sidebar({ currentView, onNavigate }: SidebarProps) {
     const sessions = sessionsByProject[cwd] ?? [];
     if (!isFiltering) return sessions;
     return sessions.filter((s) => s.title.toLowerCase().includes(query));
+  }
+
+  const SESSION_LIST_CAP = 5;
+
+  function visibleSessions(cwd: string) {
+    const sessions = projectSessions(cwd);
+    if (isFiltering || expandedSessionLists[cwd]) return sessions;
+    return sessions.slice(0, SESSION_LIST_CAP);
+  }
+
+  function hiddenSessionCount(cwd: string) {
+    if (isFiltering || expandedSessionLists[cwd]) return 0;
+    return Math.max(0, projectSessions(cwd).length - SESSION_LIST_CAP);
   }
 
   const visibleProjects = projects.filter((project) => {
@@ -159,11 +173,11 @@ export function Sidebar({ currentView, onNavigate }: SidebarProps) {
                 <div key={project.cwd}>
                   <div className="no-drag group/project relative flex items-center rounded-lg hover:bg-white/5 transition-colors">
                     <button
-                      onClick={() => toggleCollapsed(project.cwd)}
-                      aria-label={collapsedProjects[project.cwd] ? '展开项目' : '折叠项目'}
+                      onClick={() => toggleCollapsed(project.cwd, project.collapsed)}
+                      aria-label={project.collapsed ? '展开项目' : '折叠项目'}
                       className="p-1.5 shrink-0 opacity-0 group-hover/project:opacity-100 transition-opacity text-neutral-500 hover:text-neutral-300"
                     >
-                      {collapsedProjects[project.cwd] ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
+                      {project.collapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
                     </button>
 
                     {renamingCwd === project.cwd ? (
@@ -211,8 +225,8 @@ export function Sidebar({ currentView, onNavigate }: SidebarProps) {
                     )}
                   </div>
 
-                  {!collapsedProjects[project.cwd] &&
-                    projectSessions(project.cwd).map((session) => (
+                  {!project.collapsed &&
+                    visibleSessions(project.cwd).map((session) => (
                       <button
                         key={session.sessionId}
                         onClick={() => handleOpenSession(project.cwd, session.sessionId)}
@@ -228,6 +242,14 @@ export function Sidebar({ currentView, onNavigate }: SidebarProps) {
                         </span>
                       </button>
                     ))}
+                  {!project.collapsed && hiddenSessionCount(project.cwd) > 0 && (
+                    <button
+                      onClick={() => setExpandedSessionLists((prev) => ({ ...prev, [project.cwd]: true }))}
+                      className="no-drag w-full flex items-center gap-2 pl-8 pr-2 py-1.5 rounded-lg text-xs text-text-tertiary hover:bg-white/5 hover:text-neutral-300 transition-colors"
+                    >
+                      显示更多（还有 {hiddenSessionCount(project.cwd)} 个）
+                    </button>
+                  )}
                 </div>
               ))}
             </div>

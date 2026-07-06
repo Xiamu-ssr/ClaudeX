@@ -26,6 +26,7 @@ export const IPC = {
   listDirEntries: 'claude:listDirEntries',
   getFilePreview: 'claude:getFilePreview',
   setProjectPinned: 'claude:setProjectPinned',
+  setProjectCollapsed: 'claude:setProjectCollapsed',
   renameProject: 'claude:renameProject',
   removeProject: 'claude:removeProject',
   archiveSession: 'claude:archiveSession',
@@ -114,6 +115,7 @@ export interface ProjectSummary {
   sessionCount: number;
   lastActiveAt: string | null;
   pinned: boolean;
+  collapsed: boolean;
 }
 export interface ListProjectsResponse {
   projects: ProjectSummary[];
@@ -135,6 +137,10 @@ export interface ListSessionsForProjectResponse {
 export interface SetProjectPinnedRequest {
   cwd: string;
   pinned: boolean;
+}
+export interface SetProjectCollapsedRequest {
+  cwd: string;
+  collapsed: boolean;
 }
 export interface RenameProjectRequest {
   cwd: string;

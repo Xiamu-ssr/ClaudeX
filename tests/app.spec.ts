@@ -483,15 +483,40 @@ test('settings usage section shows real per-project token breakdown, not fake qu
 });
 
 test('settings git and worktrees sections show the honest not-a-repo state for a plain (non-git) project', async () => {
-  // CCodeBox itself is not a git repository on this machine — a legitimate real state to
-  // assert, not a fabricated one. Explicitly select it via the picker so the test doesn't
-  // depend on whichever project happens to sort first by default.
+  // Depending on some real directory on the developer's machine happening not to be a git
+  // repo is fragile — CCodeBox's own repo was git-initialized and pushed to GitHub partway
+  // through this project's life, which silently broke that exact assumption. Use an isolated
+  // fixture project pointed at a plain temp dir instead, deterministic regardless of the git
+  // status of any real project on this machine.
+  await Promise.race([app.close(), new Promise((resolve) => setTimeout(resolve, 5000))]);
+  try {
+    app.process().kill('SIGKILL');
+  } catch {
+    // already exited — expected in the common case.
+  }
+
+  const projectsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ccodebox-test-projects-'));
+  const nonGitDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ccodebox-test-nogit-'));
+  const sessionDir = path.join(projectsDir, 'fake-project');
+  fs.mkdirSync(sessionDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(sessionDir, 'session-1.jsonl'),
+    JSON.stringify({ type: 'user', message: { role: 'user', content: 'hi' }, cwd: nonGitDir, uuid: 'u1' }) + '\n',
+  );
+
+  app = await electron.launch({
+    args: ['.', `--user-data-dir=${userDataDir}`],
+    env: { ...process.env, CCODEBOX_CLAUDE_BIN: FAKE_CLAUDE_BIN, CCODEBOX_PROJECTS_DIR: projectsDir },
+  });
+  page = await app.firstWindow();
+  await page.waitForLoadState('domcontentloaded');
+
   const trigger = page.locator('main button:has(svg.lucide-file-text)');
   await trigger.click();
   const menu = page.locator('main .absolute.bottom-full');
   await expect(menu).toBeVisible();
-  await menu.getByRole('button', { name: 'CCodeBox' }).click();
-  await expect(trigger).toContainText('CCodeBox');
+  await menu.getByRole('button', { name: path.basename(nonGitDir) }).click();
+  await expect(trigger).toContainText(path.basename(nonGitDir));
 
   await page.getByRole('button', { name: '用户菜单' }).click();
   await page.getByRole('button', { name: /^设置/ }).click();
@@ -501,6 +526,9 @@ test('settings git and worktrees sections show the honest not-a-repo state for a
 
   await page.getByRole('button', { name: '工作树' }).click();
   await expect(page.getByText('当前项目不是一个 Git 仓库')).toBeVisible();
+
+  fs.rmSync(projectsDir, { recursive: true, force: true });
+  fs.rmSync(nonGitDir, { recursive: true, force: true });
 });
 
 test('settings env section shows masked values, never raw plaintext', async () => {
