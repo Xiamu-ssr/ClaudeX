@@ -43,7 +43,7 @@ type SettingsSection = 'general' | 'profile' | 'appearance' | 'config' | 'shortc
 // account+theme+keybinding config, archived conversations) with no CLI-side analog, or
 // genuinely out of scope for this pass, and are left as an honest "coming soon" rather
 // than backed by fabricated data.
-const REAL_SECTIONS: SettingsSection[] = ['general', 'profile', 'config', 'mcp', 'hooks', 'usage', 'git', 'worktrees', 'env'];
+const REAL_SECTIONS: SettingsSection[] = ['general', 'profile', 'appearance', 'config', 'mcp', 'hooks', 'usage', 'git', 'worktrees', 'env'];
 
 interface SidebarItem {
   id: SettingsSection;
@@ -105,7 +105,7 @@ export function SettingsView({ onBack }: SettingsViewProps) {
       {/* Settings sidebar */}
       <div className="w-72 bg-sidebar border-r border-card-border flex flex-col shrink-0">
         {/* Back button */}
-        <div className="h-[52px] flex items-center px-4 drag">
+        <div className="h-[52px] flex items-center pl-20 pr-4 drag">
           <button
             onClick={onBack}
             className="no-drag flex items-center gap-2 text-sm text-text-secondary hover:text-neutral-300 transition-colors"
@@ -162,6 +162,7 @@ export function SettingsView({ onBack }: SettingsViewProps) {
         <div className="max-w-[700px] mx-auto">
           {activeSection === 'general' && <GeneralSettings />}
           {activeSection === 'profile' && <ProfileSettings />}
+          {activeSection === 'appearance' && <AppearanceSettings />}
           {activeSection === 'config' && <ConfigSettings />}
           {activeSection === 'mcp' && <McpSettings />}
           {activeSection === 'hooks' && <HooksSettings />}
@@ -282,14 +283,14 @@ function GeneralSettings() {
         <button
           onClick={() => setPermissionMode('bypassPermissions')}
           className={`rounded-xl p-4 text-left transition-colors border-2 ${
-            permissionMode === 'bypassPermissions' ? 'border-blue-500' : 'border-card-border hover:bg-white/3'
+            permissionMode === 'bypassPermissions' ? 'border-accent' : 'border-card-border hover:bg-white/3'
           }`}
         >
           <div className="flex items-center justify-between mb-2">
             <ShieldCheck size={18} className="text-neutral-300" />
             <div
               className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
-                permissionMode === 'bypassPermissions' ? 'bg-blue-500 border-blue-500' : 'border-neutral-600'
+                permissionMode === 'bypassPermissions' ? 'bg-accent border-accent' : 'border-neutral-600'
               }`}
             >
               {permissionMode === 'bypassPermissions' && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
@@ -301,14 +302,14 @@ function GeneralSettings() {
         <button
           onClick={() => setPermissionMode('default')}
           className={`rounded-xl p-4 text-left transition-colors border-2 ${
-            permissionMode === 'default' ? 'border-blue-500' : 'border-card-border hover:bg-white/3'
+            permissionMode === 'default' ? 'border-accent' : 'border-card-border hover:bg-white/3'
           }`}
         >
           <div className="flex items-center justify-between mb-2">
             <ShieldAlert size={18} className="text-neutral-300" />
             <div
               className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
-                permissionMode === 'default' ? 'bg-blue-500 border-blue-500' : 'border-neutral-600'
+                permissionMode === 'default' ? 'bg-accent border-accent' : 'border-neutral-600'
               }`}
             >
               {permissionMode === 'default' && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
@@ -339,6 +340,59 @@ function GeneralSettings() {
           />
         </SettingRow>
       </SettingCard>
+    </>
+  );
+}
+
+type AccentTheme = 'black' | 'lake-blue';
+
+const THEME_STORAGE_KEY = 'ccodebox:theme';
+
+function AppearanceSettings() {
+  const [theme, setTheme] = useState<AccentTheme>(() => {
+    return localStorage.getItem(THEME_STORAGE_KEY) === 'lake-blue' ? 'lake-blue' : 'black';
+  });
+
+  const applyTheme = (next: AccentTheme) => {
+    setTheme(next);
+    if (next === 'black') {
+      document.documentElement.removeAttribute('data-theme');
+      localStorage.removeItem(THEME_STORAGE_KEY);
+    } else {
+      document.documentElement.setAttribute('data-theme', next);
+      localStorage.setItem(THEME_STORAGE_KEY, next);
+    }
+  };
+
+  const options: { id: AccentTheme; label: string; swatch: string }[] = [
+    { id: 'black', label: '主黑色', swatch: '#1c1c1e' },
+    { id: 'lake-blue', label: '主湖水宝蓝色', swatch: '#0ea5e9' },
+  ];
+
+  return (
+    <>
+      <SectionTitle title="外观" description="选择界面的强调色主题" />
+      <div className="grid grid-cols-3 gap-3">
+        {options.map((opt) => (
+          <button
+            key={opt.id}
+            onClick={() => applyTheme(opt.id)}
+            className={`rounded-xl p-4 text-left transition-colors border-2 ${
+              theme === opt.id ? 'border-accent' : 'border-card-border hover:bg-white/3'
+            }`}
+          >
+            <div className="w-8 h-8 rounded-full border border-white/10 mb-3" style={{ backgroundColor: opt.swatch }} />
+            <div className="text-sm font-medium text-white">{opt.label}</div>
+          </button>
+        ))}
+        <div className="rounded-xl p-4 text-left border-2 border-card-border opacity-50 cursor-not-allowed">
+          <div className="w-8 h-8 rounded-full border border-white/10 mb-3" style={{ backgroundColor: '#f5f5f5' }} />
+          <div className="text-sm font-medium text-white">主白色</div>
+          <div className="text-xs text-text-secondary mt-1">
+            完整浅色主题涉及原生玻璃质感与强制深色渲染的架构调整，暂未开放
+          </div>
+        </div>
+      </div>
     </>
   );
 }

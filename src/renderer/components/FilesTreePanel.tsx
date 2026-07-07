@@ -14,6 +14,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import type { FileTreeEntry } from '../../shared/ipc';
+import { useSessionStore } from '../store/sessionStore';
 
 interface FilesTreePanelProps {
   cwd: string;
@@ -21,17 +22,13 @@ interface FilesTreePanelProps {
 
 export function FilesTreePanel({ cwd }: FilesTreePanelProps) {
   const [rootEntries, setRootEntries] = useState<FileTreeEntry[] | null>(null);
-  const [selectedPath, setSelectedPath] = useState<string | null>(null);
-  const [previewContent, setPreviewContent] = useState<string | null>(null);
-  const [previewReason, setPreviewReason] = useState<'binary' | 'too-large' | 'not-found' | null>(null);
-  const [previewLoading, setPreviewLoading] = useState(false);
+  const previewFile = useSessionStore((s) => s.previewFile);
+  const openFilePreview = useSessionStore((s) => s.openFilePreview);
+  const selectedPath = previewFile?.cwd === cwd ? previewFile.relativePath : null;
 
   useEffect(() => {
     let cancelled = false;
     setRootEntries(null);
-    setSelectedPath(null);
-    setPreviewContent(null);
-    setPreviewReason(null);
     window.electronAPI.claude.listDirEntries({ cwd, relativePath: '' }).then((res) => {
       if (!cancelled) setRootEntries(res.entries);
     });
@@ -48,15 +45,7 @@ export function FilesTreePanel({ cwd }: FilesTreePanelProps) {
   };
 
   const openFile = (relativePath: string) => {
-    setSelectedPath(relativePath);
-    setPreviewLoading(true);
-    setPreviewContent(null);
-    setPreviewReason(null);
-    window.electronAPI.claude.getFilePreview({ cwd, relativePath }).then((res) => {
-      setPreviewContent(res.content);
-      setPreviewReason(res.reason ?? null);
-      setPreviewLoading(false);
-    });
+    openFilePreview(cwd, relativePath);
   };
 
   return (
@@ -70,7 +59,7 @@ export function FilesTreePanel({ cwd }: FilesTreePanelProps) {
           <RefreshCw size={13} />
         </button>
       </div>
-      <div className="max-h-[50%] overflow-y-auto border-b border-card-border shrink-0">
+      <div className="flex-1 overflow-y-auto">
         {rootEntries === null ? (
           <div className="p-4 text-sm text-text-tertiary">加载中...</div>
         ) : rootEntries.length === 0 ? (
@@ -86,23 +75,6 @@ export function FilesTreePanel({ cwd }: FilesTreePanelProps) {
               onSelectFile={openFile}
             />
           ))
-        )}
-      </div>
-      <div className="flex-1 overflow-auto min-h-0">
-        {selectedPath ? (
-          <pre className="text-[11px] leading-[1.5] font-mono p-3 whitespace-pre-wrap break-all text-neutral-300">
-            {previewLoading
-              ? '加载中...'
-              : previewReason === 'binary'
-                ? '(二进制文件，未预览)'
-                : previewReason === 'too-large'
-                  ? '(文件过大，未预览)'
-                  : previewReason === 'not-found'
-                    ? '(文件不存在)'
-                    : (previewContent ?? '')}
-          </pre>
-        ) : (
-          <div className="p-4 text-sm text-text-tertiary">选择一个文件以预览</div>
         )}
       </div>
     </div>

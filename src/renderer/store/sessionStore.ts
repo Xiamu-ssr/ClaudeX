@@ -40,6 +40,9 @@ interface SessionStore {
   selectedModelId: string;
   rightPanelOpen: boolean;
   rightPanelTab: RightPanelTab;
+  previewFile: { cwd: string; relativePath: string } | null;
+  openFilePreview: (cwd: string, relativePath: string) => void;
+  closeFilePreview: () => void;
   setSelectedProjectCwd: (cwd: string) => void;
   setPermissionMode: (mode: PermissionMode) => void;
   setEffortLevel: (level: EffortLevel | null) => void;
@@ -218,6 +221,7 @@ export const useSessionStore = create<SessionStore>((set, get) => {
     selectedModelId: DEFAULT_MODEL_ID,
     rightPanelOpen: false,
     rightPanelTab: 'files',
+    previewFile: null,
 
     setSelectedProjectCwd: (cwd) => set({ selectedProjectCwd: cwd }),
     setPermissionMode: (mode) => set({ permissionMode: mode }),
@@ -225,6 +229,9 @@ export const useSessionStore = create<SessionStore>((set, get) => {
     setRightPanelOpen: (open) => set({ rightPanelOpen: open }),
     toggleRightPanel: () => set((s) => ({ rightPanelOpen: !s.rightPanelOpen })),
     setRightPanelTab: (tab) => set({ rightPanelTab: tab }),
+
+    openFilePreview: (cwd, relativePath) => set({ previewFile: { cwd, relativePath } }),
+    closeFilePreview: () => set({ previewFile: null }),
 
     loadProjectList: async () => {
       const { projects } = await window.electronAPI.claude.listProjects();

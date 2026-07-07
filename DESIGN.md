@@ -155,10 +155,12 @@ UI 里的"供应商"= 一个命名分组的模型列表 + 一份 `Record<string,
 
 对话页右侧可切换面板，视觉上对应 Codex 桌面端的同类分栏，四个 tab 后面都是真实数据/真实进程，没有一个是占位：
 
-- **Files**（`FilesTreePanel.tsx` + `main/system/fileTree.ts`）：真正的文件树浏览器，逐层懒加载（点开哪层才用 `listDirEntries` 查哪层，不做一次性整树递归扫描），点击文件走 `getFilePreview` 只读展示内容（二进制/超大/不存在都各自诚实提示，不做语法高亮，不做写回）。目录遍历用一个硬编码 denylist（`node_modules`/`.git`/`dist`/`build`/`.vite`/`out`）过滤，不是真正的 `.gitignore` 解析。
+- **Files**（`FilesTreePanel.tsx` + `main/system/fileTree.ts`）：真正的文件树浏览器，逐层懒加载（点开哪层才用 `listDirEntries` 查哪层，不做一次性整树递归扫描）。目录遍历用一个硬编码 denylist（`node_modules`/`.git`/`dist`/`build`/`.vite`/`out`）过滤，不是真正的 `.gitignore` 解析。点击文件不再在右侧面板内联展示——`sessionStore.ts` 的 `previewFile` 状态记录 `{cwd, relativePath}`，`App.tsx` 据此把主内容区（`MainContent`/`ChatView`/`PluginsView`）整体换成 `FilePreviewPane.tsx`，右侧的文件树面板保持挂载不变，效果是"左树右内容"的 VS Code 式分栏，而不是树和内容挤在同一个窄面板里。`FilePreviewPane` 用 `react-syntax-highlighter`（Prism 引擎 + `vscDarkPlus` 主题）做真正的语法高亮，`utils/fileLanguage.ts` 按扩展名映射到 Prism 语言 id，不认识的扩展名兜底成纯文本而不是报错。二进制/超大/不存在三种情况沿用 `getFilePreview` 已有的诚实提示，不强行高亮。返回按钮和右侧面板开关按钮复用 `MainContent.tsx` 同款的头部工具栏样式约定。`navigate()` 切换 `currentView` 时会先调用 `closeFilePreview()`，避免切到设置页/插件页时背后还残留一个预览态。
 - **Review**（`ReviewPanel.tsx` + `main/system/git.ts` 的 `getGitDiff`，`FilesPanel.tsx` 原名）：对当前会话 cwd 跑 `git diff HEAD --` 分类出 `modified`/`added`/`deleted`/`untracked` 四种状态（porcelain 状态码解析规则见下），点击某个文件展示真实 diff 内容，头部聚合显示"已编辑 N 个文件 · +X -Y"（纯前端对已拿到的 diff 文本按行计数，零新增后端调用）；未跟踪文件没有 `git diff` 可跑，改为直接读文件内容格式化成全 `+` 行（二进制文件用空字节探测，命中则显示"(二进制文件，未预览)"占位而不是原样吐字节）。仅当 `getGitStatus(cwd).isRepo === true` 时才在 tab 栏出现（隐藏而非置灰），非仓库目录时自动把当前 tab 切回 Files，避免残留一个按钮已消失但内容还在的悬空态。不做撤销/丢弃变更——那是真正不可逆的 git 操作，本仓库没有任何二次确认弹窗先例，本轮只做只读展示。
 - **Terminal**（`TerminalPanel.tsx` + `node-pty`）：真实 spawn 一个登录 shell（不是模拟终端），用 `@xterm/xterm` 渲染。
 - **Browser**（`BrowserPanel.tsx` + `<webview>`）：地址栏 + 内嵌 `<webview>`，真实前进/后退/刷新（监听 `did-navigate`/`did-navigate-in-page` 同步按钮可用态和地址栏），URL 规范化（裸域名自动补 `https://`，带 scheme 的 URL 原样加载）。
+
+**宽度可自由拖拽调整**：右侧面板 `<aside>` 的宽度不再是固定的 `w-[420px]`，第一个子元素是一条 4px 宽的拖拽热区（`data-testid="right-panel-resize-handle"`，左边缘、`cursor-col-resize`，hover/active 态叠一层 `accent-orange` 高亮），`onMouseDown` 记录起始 `{startX, startWidth}`，随后在 `window` 级别（不是热区自己）监听 `mousemove`/`mouseup`，这样拖动过程中鼠标滑出这条 4px 热区也不会中断拖拽。宽度算法是 `next = startWidth - (clientX - startX)`（面板锚定在窗口右边，热区在其左边缘，鼠标左移增宽、右移变窄），夹在 `[280, 720]` 区间内（`MIN_WIDTH`/`MAX_WIDTH`），只在 `mouseup` 时写入 `localStorage`（key: `ccodebox:rightPanelWidth`），拖拽过程中不写盘。初始宽度用 `useState` 的惰性初始化读取并夹紧 `localStorage` 里存的值（覆盖"存量超出范围"和"从未存过、回退到 420 默认值"两种情况），所以重启应用后宽度会保持上次拖拽的结果。
 
 **生命周期决策：只有 Terminal 做懒挂载 + 之后常驻（sticky mount），其余三个 tab 都是首次渲染即无条件挂载、只用 CSS 隐藏切换**——这里更正一处过去的不准确表述：早先这里写的是"三个 tab 都懒挂载常驻"，但实际代码里 Files/Browser（现在是 Files/Review/Browser 三个）从来都不是懒挂载的，只有 Terminal 真正持有一个需要保活的外部资源（一个 shell 进程）。如果每次切走再切回来都重新渲染 Terminal 组件，naive 实现会重新 spawn 一个 shell，之前的工作目录/环境变量/运行中的命令全部丢失——不符合真实终端"切走再切回来还是同一个会话"的直觉预期。Files/Review 背后只是文件树查询/git diff 查询，没有这个保活需求，沿用更简单的即时挂载方式即可。这个懒挂载+常驻的改动本身是在没有明确被要求的情况下做出的判断，已有 Playwright 回归测试（`right-panel.spec.ts` 的 "switching tabs and back keeps the same shell session alive"）覆盖。
 
@@ -177,6 +179,10 @@ UI 里的"供应商"= 一个命名分组的模型列表 + 一份 `Record<string,
 **一个需要动手验证才能发现的坑：区分"行内代码"和"代码块"不能只看 `className`。** `remark`/`rehype` 给围栏代码块（fenced code）的 `<code>` 节点加 `className: 'language-xxx'` 的前提是这个围栏**写了语言标注**（如 ` ```js `）；没写语言标注的围栏块（纯 ` ``` `）产出的 `<code>` 节点**没有 `className`**——和行内代码完全没区别，原计划里"看 `className` 有没有值"这一条判断规则会把无语言标注的多行代码块误判成行内代码，渲染出一个塞进 `<pre>` 里的行内代码"药丸"样式。**修复**：兜底再看 `node.position`——围栏代码块的 hast 节点 `position` 总是跨越开始和结束围栏至少两行（`start.line !== end.line`），单行行内代码不会。判断式是 `!!className || (start.line !== end.line)`——`className` 抓有语言标注的围栏块，多行判断抓没语言标注的围栏块。唯一的假阳性是多行行内代码（`` `code\nspanning` ``，原文里几乎不会出现），渲染成代码块样式在视觉上也完全说得过去。
 
 链接点击新增 `openExternal` IPC（`shared/ipc.ts` → `preload/index.ts` → `main/index.ts` → `electron.d.ts` 标准四处联动），`RichText.tsx` 里的 `<a>` 用 `onClick` 的 `preventDefault()` 拦截默认导航，转发给这个 IPC 调 `shell.openExternal()`——否则点击回复里的链接会直接在 Electron 窗口里跳走，把整个 App 导航离开。`main/index.ts` 的 handler 用 `new URL()` 解析后显式只放行 `http:`/`https:` 两种 protocol，拒绝 `file:`/`javascript:` 等 scheme——防的是内容里如果被注入一个恶意 scheme 链接，点击后触发本地文件访问或脚本执行。
+
+### 真实原生玻璃质感（vibrancy）
+
+Sidebar 最初的"玻璃质感"是纯 CSS 手段（`backdrop-blur-2xl` 叠一层白色透明度渐变在不透明的 `bg-sidebar` 实色背景上，见下方 TODO 里"10-20% 强度"那条记录），只能模糊 Sidebar 自己 DOM 树内部的内容，模糊不到窗口后面桌面/其他窗口的真实像素。换成 macOS 原生 vibrancy 后，`BrowserWindow` 构造参数从不透明的 `backgroundColor:'#1c1c1e'` 换成 `transparent:true` + `backgroundColor:'#00000000'` + `vibrancy:'sidebar'` + `visualEffectState:'active'`，`body` 的 CSS 背景色也从实色 `var(--color-sidebar)` 改成 `transparent`——这样整个窗口背景交给 macOS 合成器做真实的毛玻璃效果（能模糊到桌面/其他窗口），Sidebar 自己不再需要 `backdrop-blur-2xl`，只保留一层更明显的白色透明度渐变（`from-white/[0.28] via-white/[0.14] to-white/[0.05]`，对应用户要求的 20-30% 强度）叠在原生 vibrancy 之上做区域区分，边框透明度也从 `0.07` 提到 `0.12` 增强层次感。`nativeTheme.themeSource` 顺带被强制设成 `'dark'`——`vibrancy:'sidebar'` 这个 material 会跟随 OS 当前的明暗模式切换渲染变体，而 CCodeBox 没有浅色主题，如果不强制，浅色系统外观下会渲染出一个发白、和界面其余深色部分完全不搭的浅色玻璃效果。
 
 ## 技术栈
 
@@ -221,7 +227,7 @@ CCodeBox/
 │       ├── electron.d.ts            # window.electronAPI 类型声明
 │       ├── store/sessionStore.ts    # zustand，订阅 IPC 事件驱动会话状态
 │       ├── types/chat.ts            # 从 shared/chat.ts 重新导出（历史兼容）
-│       └── components/
+│       ├── components/
 │           ├── Sidebar.tsx           # 真实项目/会话列表 + 用户菜单；每项目悬浮菜单(置顶/重命名/在 Finder 中显示/创建工作树/归档全部/移除) + 折叠展开
 │           ├── ProjectContextMenu.tsx # Sidebar 项目悬浮菜单面板(含创建工作树的行内分支名输入子状态)
 │           ├── MainContent.tsx       # 首页
@@ -234,12 +240,14 @@ CCodeBox/
 │           ├── ModelEffortPicker.tsx # 级联 模型→推理强度→供应商 选择器
 │           ├── SettingsView.tsx      # 设置页：常规/个人资料/配置/MCP/钩子/使用情况/Git/工作树/环境均为真实数据；
 │           │                         # 外观/键盘快捷键/连接/已归档对话仍是"即将推出"占位（Codex 专属概念或超出本轮范围）
-│           ├── RightPanel.tsx        # Files/Review/Terminal/Browser 四 tab 容器，仅 Terminal 懒挂载+之后常驻(sticky)
-│           ├── FilesTreePanel.tsx    # 真实文件树浏览器，逐层懒加载 + 只读预览
+│           ├── RightPanel.tsx        # Files/Review/Terminal/Browser 四 tab 容器，仅 Terminal 懒挂载+之后常驻(sticky)；宽度可自由拖拽(280-720px)+持久化
+│           ├── FilesTreePanel.tsx    # 真实文件树浏览器，逐层懒加载；点击文件委托给 sessionStore 的 previewFile，不再内联预览
+│           ├── FilePreviewPane.tsx   # 主内容区文件预览：react-syntax-highlighter 语法高亮，替换 MainContent/ChatView/PluginsView
 │           ├── ReviewPanel.tsx       # 真实 git diff 列表 + 内容预览（仅 Git 仓库时出现）
 │           ├── TerminalPanel.tsx     # node-pty 真实 shell + @xterm/xterm 渲染
 │           ├── BrowserPanel.tsx      # 地址栏 + <webview>，真实前进/后退/刷新 + URL 规范化
 │           └── RichText.tsx
+│       └── utils/fileLanguage.ts     # 文件名扩展名 → Prism 语言 id 映射，未知扩展名兜底纯文本
 ├── tests/
 │   ├── app.spec.ts                  # Playwright E2E，用 fake-claude 二进制保证确定性
 │   ├── eventTranslator.spec.ts      # 纯函数单测，用真实抓包 fixture
@@ -247,6 +255,8 @@ CCodeBox/
 │   ├── git.spec.ts                  # 纯函数单测：真实临时 git 仓库 + parseWorktreePorcelain + getGitDiff
 │   ├── usageStats.spec.ts           # 纯函数单测：临时 session fixture + 连续天数边界用例
 │   ├── right-panel.spec.ts          # Files/Review/Terminal/Browser 四 tab 的 E2E（真实 git repo/真实 shell）
+│   ├── right-panel-resize.spec.ts   # 拖拽调整右侧面板宽度：方向/夹紧/持久化跨重启 的 E2E
+│   ├── file-preview.spec.ts         # 点击文件树 → 主内容区语法高亮预览 的 E2E
 │   ├── sidebar.spec.ts              # 项目菜单(置顶/重命名/移除) + ChatView 会话菜单(移除)的 E2E
 │   └── fixtures/
 │       ├── stream-json/*.jsonl       # 真实抓包的协议样本
@@ -261,7 +271,7 @@ CCodeBox/
 
 - **`eventTranslator`/`historyReader`/`git`/`usageStats` 单测**：喂真实抓包/构造的 fixture 数据，零 Electron 依赖，跑得快、确定性强。故意用逐字节切片测试覆盖"跨 chunk 边界的行缓冲"这个最容易踩的坑。`git.spec.ts` 直接在临时目录里跑真实 `git init`/`git worktree add` 命令再断言解析结果（而不是 mock `child_process`），因为这些操作本地又快又零副作用；`isRepo:true` 分支之所以选择这条路线而不是 Playwright E2E，是因为 CCodeBox 自己这台机器上并不是 git 仓库（`git rev-parse --is-inside-work-tree` 会失败），要在 E2E 里覆盖"是仓库"这个分支得额外搭一个"看起来像真实项目"的临时 git 仓库 fixture，复杂度不划算。`usageStats.spec.ts` 把 `computeStreakDays`/`localDateKey` 单独导出做纯函数测试，传入固定的 `now: Date` 覆盖"今天/昨天有无活动""断档"等边界情况，不依赖真实系统时钟（避免午夜时间片的 flaky）。
 - **E2E (`tests/app.spec.ts`)**：Playwright 的 `_electron` API 通过 Chrome DevTools Protocol 直接驱动真实 Electron app——不需要屏幕录制/辅助功能权限，不占用物理屏幕，能真正点击按钮、输入文字、断言 DOM 状态。发送消息类测试通过 `CCODEBOX_CLAUDE_BIN` 环境变量注入 `tests/fixtures/fake-claude/fake-claude.mjs`（模拟 stream-json 协议、`doctor`、`--version` 的假 CLI，前二者带人为延时以便断言"运行中"这类过渡态），保证确定性、不消耗真实 API 额度、不受网络影响。真实 CLI 只做开发时的手动抽查，不进自动化套件。设置页里那些直接读本机真实文件（`~/.claude/projects` 用量统计、`~/.claude.json` 技能使用、`~/.claude/settings.json` 钩子/权限/环境变量）的分区，E2E 测试断言的是"结构性存在"（区块标题、说明文案、非卡死在加载态）而非具体数值——这些数值真实且会随这台机器的实际使用而变化，跟已有的"MCP 服务器/插件目录读真实数据"测试是同一种取舍。
-- **已知的测试环境坑**：`_electron.launch({args:['.']})` 读取的是 `.vite/build/main.js`（上一次构建产物），main/preload 代码改动后必须先跑一次 `electron-forge start` 才能让 Playwright 测到新代码；且必须让这个 dev server **持续在后台跑着**（不能跑几秒就杀掉），否则 main.js 里编译进的 Vite dev server URL 会指向一个已经死掉的地址，导致后续启动的 Electron 窗口加载失败（`chrome-error://chromewebdata/`）。**更省心的替代方案**：跑一次 `npm run package`（`electron-forge package`）——产物是完全静态的（渲染进程走 `file://` 而不是活的 dev server URL），没有"后台进程必须活着"这个约束，代价是会顺带在 `out/` 下生成一份完整打包好的 app（已 gitignore，纯磁盘占用，可以随时删）。
+- **已知的测试环境坑**：`_electron.launch({args:['.']})` 读取的是 `.vite/build/main.js`（上一次构建产物），main/preload 代码改动后必须先跑一次 `electron-forge start` 才能让 Playwright 测到新代码；且必须让这个 dev server **持续在后台跑着**（不能跑几秒就杀掉），否则 main.js 里编译进的 Vite dev server URL 会指向一个已经死掉的地址，导致后续启动的 Electron 窗口加载失败（`chrome-error://chromewebdata/`）。**更省心的替代方案**：跑一次 `npm run package`（`electron-forge package`）——产物是完全静态的（渲染进程走 `file://` 而不是活的 dev server URL），没有"后台进程必须活着"这个约束，代价是会顺带在 `out/` 下生成一份完整打包好的 app（已 gitignore，纯磁盘占用，可以随时删）。**实测到的具体症状（新增依赖场景尤其容易踩）**：`package.json` 新增依赖（如引入 `react-syntax-highlighter`）会改变 lockfile hash，让 Vite 的 dep 预打包缓存（`node_modules/.vite/deps`）失效，dev server 需要重新 optimize；如果这时候 dev server 是"每条测试都临时起、`afterEach` 又用超时 race + `SIGKILL` 强杀"这种模式（本仓库测试就是这样），重新 optimize 永远来不及完整落盘就被杀掉，导致**每一次**新的 Electron 启动都读到同一份过期缓存、卡住不渲染——现象是页面 `document.body` 完全空（连 `<div id="root">` 都没有），`console`/`pageerror` 事件都不会触发任何东西（因为连接 dev server 失败发生在任何渲染进程 JS 跑起来之前），大批量、跨多个不相关测试文件同时失败，且**独立重跑单个测试也一样会失败**（不是并发/资源竞争导致的偶发 flaky）。诊断时不要被"失败横跨完全不相关的测试文件"误导去怀疑改动本身引入了全局性 bug——先确认是否有一个**长期存活、允许它完整跑完首次 optimize**的 dev server 在后台运行（`ps aux | grep vite`），必要时手动 `npm run dev` 晾着别杀，等日志出现依赖名对应的 optimize 产物（`node_modules/.vite/deps/` 下能看到新依赖的 `.js`）之后再跑测试。
 - **`app.close()` 有时会挂起**：观察到的现象是——只要该测试会话内曾经 spawn 过 claude 子进程（无论真实还是 fake），Electron 主进程本身能正常退出（`before-quit`/`will-quit`/`process exit` 全部按预期触发，exit code 0），但 Playwright 的 `.close()` promise 依然不 resolve，怀疑是 CDP/调试协议的收尾竞态，不是本项目代码的 bug。`afterEach` 里用"限时 race + 强制 kill"兜底，避免拖垮整个测试运行。
 - **测试必须用独立的 `--user-data-dir`**：`_electron.launch({args: ['.', `--user-data-dir=${tmpDir}`]})` 能完全隔离 `app.getPath('userData')`（新建/删除 model-provider 之类的测试不会污染这台机器上的真实 CCodeBox 配置）。注意 macOS 上 `/var` 是 `/private/var` 的符号链接，校验落地路径时要用 `fs.realpathSync` 才能对得上。
 - **Playwright 穿不进 `<webview>` 的 guest 内容**：`page.frames()` 不会列出 webview 的 guest frame，`.contentFrame()` 明确要求 `<iframe>` 而拒绝 webview。所以 `right-panel.spec.ts` 里 Browser tab 的测试断言的是 `<webview>` 元素自己的 `src` 属性（CCodeBox 自己的 URL 规范化逻辑），而不是 guest 页面渲染出的内容（那是 Chromium 自己的职责，不需要我们测）。
@@ -290,14 +300,15 @@ CCodeBox/
 - [x] Sidebar 项目悬浮菜单（置顶/重命名/在 Finder 中显示/创建工作树/归档全部会话/移除）+ 折叠展开；ChatView `⋯` 菜单改为会话级归档/移除入口（原滑块图标死按钮已删除，详见"项目/会话软状态"一节）
 - [x] 真正打断进行中的一轮回复（`stop()` 从只关 stdin 改成先发 `SIGINT`、3 秒后升级 `SIGTERM`，并修复了随之暴露的 `pendingStopSessionId` 清空时序 race，见"错误与挂起恢复"一节）
 - [x] 发送/停止按钮防抖：一轮还在处理时 Ctrl+Enter 不会再触发重复发送（`InputBar.tsx` 键盘层 + `sessionStore.ts` 的 `sendMessage` 双层拦截）
-- [x] 文件树按扩展名区分图标（`FilesTreePanel.tsx` 里一个纯 lucide-react 映射函数，无新依赖；真正的语法高亮预览仍是空缺，见下）
+- [x] 文件树按扩展名区分图标（`FilesTreePanel.tsx` 里一个纯 lucide-react 映射函数，无新依赖）
 - [x] 应用图标（1024×1024 手绘 SVG，橘调日落海滨天际线主题；全 macOS 原生工具链生成 `.icns`——`sips` 栅格化 + `iconutil` 编译 iconset，零新依赖。`packagerConfig.icon` 控制安装后 App 本身的图标，`MakerDMG` 自己的 `icon` 选项另外控制 DMG 挂载窗口里的图标——两处配置互相独立，都要设置）
-- [x] Sidebar 轻玻璃质感（10-20% 强度）：`backdrop-blur-2xl` + 从上到下 8%→3%→1% 白色透明度的 `bg-gradient-to-b` 叠加在原有 `bg-sidebar` 实色背景上——Tailwind 的 `bg-*`(`background-color`) 和 `bg-gradient-to-*`(`background-image`) 是两个不冲突的图层，不需要重构现有结构就能叠加
+- [x] Sidebar 真实原生玻璃质感（20-30% 强度）：从 CSS-only 的 `backdrop-blur-2xl` 升级为 macOS 原生 vibrancy（`BrowserWindow` 的 `transparent:true`+`vibrancy:'sidebar'`+`visualEffectState:'active'`，`body` 背景改透明），能真实模糊到窗口后面的桌面/其他窗口；Sidebar 自身保留一层更明显的白色透明度渐变（`from-white/[0.28] via-white/[0.14] to-white/[0.05]`）叠在原生 vibrancy 上做区域区分，详见"真实原生玻璃质感"一节
 - [x] "已处理 xx s" 改为处理中每秒实时跳动、完成后定格为 CLI 上报的真实 `duration_ms`，跨 60s/3600s 自动换算成 `h/min/s`（`ChatMessage.tsx` 用 `setInterval` 每秒从 `Date.now() - turn.startedAt` 重新计算，不用递增计数器，避免 tick 漏掉时产生的累积漂移）
 - [x] Markdown 渲染换成 `react-markdown` + `remark-gfm`（原来是手写的仅支持段落+行内代码的简易解析器，加粗/列表/标题/链接/表格/代码块全部不生效）；新增 `openExternal` IPC 让渲染出的链接用系统默认浏览器打开而不是在 Electron 窗口内跳走，`main` 侧限定只放行 `http:`/`https:` scheme（见"Markdown 渲染"一节）
+- [x] 文件预览真正的语法高亮：接入 `react-syntax-highlighter`（Prism 引擎 + `vscDarkPlus` 主题），预览位置同时从右侧面板内联挪到主内容区（`FilePreviewPane.tsx`，见"右侧面板"一节）
+- [x] 右侧面板宽度可自由拖拽调整（280-720px 夹紧，`localStorage` 持久化跨重启，见"右侧面板"一节）
 - [ ] 多会话/多标签页同时打开（当前架构按 sessionId 设计，UI 层还只支持单一 activeSession）
 - [ ] 查看已归档的会话/项目——目前"归档"和"移除"在列表里效果相同（整个过滤掉），没有单独的"已归档"视图能把它们找回来，只能手动清 sidecar 文件
-- [ ] 文件预览真正的语法高亮（如接入 Shiki）——目前只是按扩展名换图标，内容仍是纯 `<pre>` 文本；引入新依赖是产品/范围决策，未经确认前不做
 
 ## 打包踩坑记录
 

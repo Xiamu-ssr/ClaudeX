@@ -114,7 +114,7 @@ export function Sidebar({ currentView, onNavigate }: SidebarProps) {
   });
 
   return (
-    <aside className="w-60 bg-sidebar bg-gradient-to-b from-white/[0.08] via-white/[0.03] to-white/[0.01] backdrop-blur-2xl flex flex-col h-full shrink-0 relative border-r border-white/[0.07]">
+    <aside className="w-60 bg-black/20 flex flex-col h-full shrink-0 relative border-r border-white/[0.12]">
       {/* Traffic light spacing */}
       <div className="h-[52px] drag shrink-0" />
 
@@ -124,7 +124,7 @@ export function Sidebar({ currentView, onNavigate }: SidebarProps) {
         <nav className="px-3 space-y-0.5">
           <button
             onClick={() => onNavigate('home')}
-            className="no-drag w-full flex items-center gap-3 px-2 py-1.5 rounded-lg text-sm text-neutral-300 hover:bg-white/5 transition-colors"
+            className="no-drag w-full flex items-center gap-3 px-2 py-1.5 rounded-lg text-sm text-white hover:bg-white/5 transition-colors"
           >
             <SquarePen size={16} strokeWidth={1.8} />
             新对话
@@ -132,7 +132,7 @@ export function Sidebar({ currentView, onNavigate }: SidebarProps) {
           <button
             onClick={toggleSearch}
             className={`no-drag w-full flex items-center gap-3 px-2 py-1.5 rounded-lg text-sm transition-colors ${
-              searchOpen ? 'bg-white/8 text-white' : 'text-neutral-300 hover:bg-white/5'
+              searchOpen ? 'bg-white/8 text-white' : 'text-white hover:bg-white/5'
             }`}
           >
             <Search size={16} strokeWidth={1.8} />
@@ -152,7 +152,7 @@ export function Sidebar({ currentView, onNavigate }: SidebarProps) {
           <button
             onClick={() => onNavigate('plugins')}
             className={`no-drag w-full flex items-center gap-3 px-2 py-1.5 rounded-lg text-sm transition-colors ${
-              currentView === 'plugins' ? 'bg-white/8 text-white' : 'text-neutral-300 hover:bg-white/5'
+              currentView === 'plugins' ? 'bg-white/8 text-white' : 'text-white hover:bg-white/5'
             }`}
           >
             <AtSign size={16} strokeWidth={1.8} />
@@ -162,11 +162,11 @@ export function Sidebar({ currentView, onNavigate }: SidebarProps) {
 
         {/* Projects */}
         <div className="mt-6 px-3">
-          <div className="text-xs text-text-tertiary font-medium px-2 mb-2">
+          <div className="text-xs text-white/50 font-medium px-2 mb-2">
             项目
           </div>
           {isFiltering && visibleProjects.length === 0 ? (
-            <div className="px-2 py-3 text-xs text-text-tertiary">没有匹配的项目或对话</div>
+            <div className="px-2 py-3 text-xs text-white/50">没有匹配的项目或对话</div>
           ) : (
             <div className="space-y-0.5">
               {visibleProjects.map((project) => (
@@ -195,9 +195,9 @@ export function Sidebar({ currentView, onNavigate }: SidebarProps) {
                     ) : (
                       <button
                         onClick={() => setSelectedProjectCwd(project.cwd)}
-                        className="flex-1 min-w-0 flex items-center gap-2 px-1 py-1.5 rounded-lg text-sm text-neutral-300 transition-colors text-left"
+                        className="flex-1 min-w-0 flex items-center gap-2 px-1 py-1.5 rounded-lg text-sm text-white transition-colors text-left"
                       >
-                        {project.pinned && <Pin size={12} className="shrink-0 text-text-tertiary" strokeWidth={1.8} />}
+                        {project.pinned && <Pin size={12} className="shrink-0 text-white/50" strokeWidth={1.8} />}
                         <FileText size={16} strokeWidth={1.8} className="shrink-0" />
                         <span className="truncate">{project.displayName}</span>
                       </button>
@@ -232,12 +232,12 @@ export function Sidebar({ currentView, onNavigate }: SidebarProps) {
                         onClick={() => handleOpenSession(project.cwd, session.sessionId)}
                         className={`no-drag w-full flex items-center gap-2 pl-8 pr-2 py-1.5 rounded-lg text-sm transition-colors ${
                           currentView === 'chat' && activeSessionId === session.sessionId
-                            ? 'bg-white/8 text-neutral-200'
-                            : 'text-neutral-400 hover:bg-white/5'
+                            ? 'bg-white/8 text-white'
+                            : 'text-white/70 hover:bg-white/5'
                         }`}
                       >
                         <span className="truncate flex-1 text-left text-[13px]">{session.title}</span>
-                        <span className="text-xs text-text-tertiary shrink-0">
+                        <span className="text-xs text-white/50 shrink-0">
                           {formatRelativeTime(session.lastActiveAt)}
                         </span>
                       </button>
@@ -245,7 +245,7 @@ export function Sidebar({ currentView, onNavigate }: SidebarProps) {
                   {!project.collapsed && hiddenSessionCount(project.cwd) > 0 && (
                     <button
                       onClick={() => setExpandedSessionLists((prev) => ({ ...prev, [project.cwd]: true }))}
-                      className="no-drag w-full flex items-center gap-2 pl-8 pr-2 py-1.5 rounded-lg text-xs text-text-tertiary hover:bg-white/5 hover:text-neutral-300 transition-colors"
+                      className="no-drag w-full flex items-center gap-2 pl-8 pr-2 py-1.5 rounded-lg text-xs text-white/50 hover:bg-white/5 hover:text-neutral-300 transition-colors"
                     >
                       显示更多（还有 {hiddenSessionCount(project.cwd)} 个）
                     </button>
@@ -279,11 +279,11 @@ export function Sidebar({ currentView, onNavigate }: SidebarProps) {
               <div className="py-1">
                 <button
                   onClick={() => { setUserMenuOpen(false); onNavigate('settings'); }}
-                  className="w-full flex items-center gap-3 px-3 py-2 text-sm text-neutral-300 hover:bg-white/5 transition-colors"
+                  className="w-full flex items-center gap-3 px-3 py-2 text-sm text-white hover:bg-white/5 transition-colors"
                 >
                   <Settings size={14} />
                   设置
-                  <span className="ml-auto text-xs text-text-tertiary">⌘,</span>
+                  <span className="ml-auto text-xs text-white/50">⌘,</span>
                 </button>
               </div>
             </div>
@@ -295,14 +295,14 @@ export function Sidebar({ currentView, onNavigate }: SidebarProps) {
           aria-label="用户菜单"
           className="no-drag w-full flex items-center gap-3 px-2 py-2 rounded-lg hover:bg-white/5 transition-colors"
         >
-          <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center text-neutral-300 shrink-0">
+          <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center text-white shrink-0">
             <User size={16} strokeWidth={1.8} />
           </div>
           <div className="text-left min-w-0">
-            <div className="text-sm text-neutral-200 truncate">
+            <div className="text-sm text-white truncate">
               {authStatus === null ? 'Claude Code' : authStatus.loggedIn ? friendlyApiProvider(authStatus.apiProvider) : '未登录'}
             </div>
-            <div className="text-xs text-text-tertiary truncate">
+            <div className="text-xs text-white/50 truncate">
               {authStatus?.loggedIn ? friendlyAuthMethod(authStatus.authMethod) : ''}
             </div>
           </div>
