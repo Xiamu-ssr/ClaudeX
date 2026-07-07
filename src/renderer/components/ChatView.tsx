@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { FileText, Ellipsis, PanelRightOpen } from 'lucide-react';
 import { ChatMessage } from './ChatMessage';
 import { InputBar } from './InputBar';
+import { ChatNavRail, type ChatNavTick } from './ChatNavRail';
 import { useSessionStore } from '../store/sessionStore';
 import type { Session, MessageAttachment } from '../types/chat';
 
@@ -21,6 +22,25 @@ export function ChatView({ session, isProcessing, onSend, onStop, onSessionArchi
   const forkSession = useSessionStore((s) => s.forkSession);
   const [menuOpen, setMenuOpen] = useState(false);
   const [forking, setForking] = useState(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const turnRefs = useRef<Map<number, HTMLDivElement>>(new Map());
+  const [ticks, setTicks] = useState<ChatNavTick[]>([]);
+
+  useEffect(() => {
+    const next: ChatNavTick[] = [];
+    session.messages.forEach((msg, i) => {
+      if (msg.role !== 'user') return;
+      next.push({ index: i, snippet: msg.content.slice(0, 120) });
+    });
+    setTicks(next);
+  }, [session.messages]);
+
+  const handleTickSelect = (index: number) => {
+    const container = scrollRef.current;
+    const el = turnRefs.current.get(index);
+    if (!container || !el) return;
+    container.scrollTo({ top: el.offsetTop - 16, behavior: 'smooth' });
+  };
 
   const handleArchive = async () => {
     setMenuOpen(false);
@@ -101,12 +121,24 @@ export function ChatView({ session, isProcessing, onSend, onStop, onSessionArchi
       </div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-6 py-4">
-        <div className="max-w-[820px] mx-auto">
-          {session.messages.map((msg, i) => (
-            <ChatMessage key={i} message={msg} />
-          ))}
+      <div className="flex-1 relative min-h-0">
+        <div ref={scrollRef} className="h-full overflow-y-auto px-6 py-4">
+          <div className="max-w-[820px] mx-auto">
+            {session.messages.map((msg, i) => (
+              <div
+                key={i}
+                ref={(el) => {
+                  if (msg.role !== 'user') return;
+                  if (el) turnRefs.current.set(i, el);
+                  else turnRefs.current.delete(i);
+                }}
+              >
+                <ChatMessage message={msg} />
+              </div>
+            ))}
+          </div>
         </div>
+        <ChatNavRail ticks={ticks} onSelect={handleTickSelect} />
       </div>
 
       {/* Input */}

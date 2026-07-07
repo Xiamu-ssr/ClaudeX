@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { resolveClaudeBinary } from '../claude/ClaudeSession';
-import type { CatalogPlugin, ConnectorPlugin, CustomMcpServer, McpServerSummary, PluginCatalog } from '../../shared/ipc';
+import type { CatalogPlugin, ConnectorPlugin, CustomMcpServer, McpServerSummary, PluginCatalog, ThirdPartyPlugin } from '../../shared/ipc';
 
 const execFileAsync = promisify(execFile);
 const PLUGIN_CMD_TIMEOUT_MS = 30_000;
@@ -132,15 +132,10 @@ export async function loadPluginCatalog(): Promise<PluginCatalog> {
 
   const officialSkills: CatalogPlugin[] = [];
   const connectors: ConnectorPlugin[] = [];
+  const thirdPartyPlugins: ThirdPartyPlugin[] = [];
 
   for (const plugin of available) {
-    // Local marketplace layout: first-party skills live under ./plugins/, and
-    // first-party MCP-server connector wrappers live under ./external_plugins/.
-    // Third-party entries have an object `source` (git-hosted) — not vendored
-    // locally, so there's nothing on disk to treat as "official" here.
-    if (typeof plugin.source !== 'string') continue;
-
-    // `installed` for BOTH buckets means "installed via `claude plugin install`", checked
+    // `installed` for ALL THREE buckets means "installed via `claude plugin install`", checked
     // against the real plugin registry (readInstalledPluginNames) — confirmed by hand that
     // installing a connector plugin never touches ~/.claude.json's mcpServers at all (it
     // writes to ~/.claude/plugins/installed_plugins.json + an enabledPlugins map in the
@@ -153,15 +148,24 @@ export async function loadPluginCatalog(): Promise<PluginCatalog> {
       installCount: plugin.installCount,
       installed: installedNames.has(plugin.name),
     };
-    if (plugin.source.startsWith('./plugins/')) {
+    // Local marketplace layout: first-party skills live under ./plugins/, and first-party
+    // MCP-server connector wrappers live under ./external_plugins/. Everything else — a
+    // string source that doesn't match either prefix (e.g. "./" for a marketplace whose
+    // repo root IS the plugin), or an object source (a separate git repo entirely) — is a
+    // real third-party/marketplace plugin, not something to silently discard.
+    if (typeof plugin.source === 'string' && plugin.source.startsWith('./plugins/')) {
       officialSkills.push(entry);
-    } else if (plugin.source.startsWith('./external_plugins/')) {
+    } else if (typeof plugin.source === 'string' && plugin.source.startsWith('./external_plugins/')) {
       connectors.push(entry);
+    } else {
+      const marketplace = plugin.pluginId.includes('@') ? plugin.pluginId.split('@')[1] : '未知来源';
+      thirdPartyPlugins.push({ ...entry, marketplace });
     }
   }
 
   officialSkills.sort((a, b) => b.installCount - a.installCount);
   connectors.sort((a, b) => b.installCount - a.installCount);
+  thirdPartyPlugins.sort((a, b) => b.installCount - a.installCount);
 
   // Servers configured directly (e.g. via `claude mcp add`), not through the plugin/marketplace
   // system at all — e.g. a hosted MCP endpoint like Tavily. Independent of `installed` above.
@@ -181,5 +185,22 @@ export async function loadPluginCatalog(): Promise<PluginCatalog> {
     installed: true,
   }));
 
-  return { connectors, customMcpServers, officialSkills, personalSkills };
+  return { connectors, customMcpServers, officialSkills, personalSkills, thirdPartyPlugins };
+}
+
+// claude mcp add <name> -- <command> [...args]: the "--" separator (confirmed against
+// `claude mcp add --help`) marks everything after it as the subprocess command/args being
+// registered, not flags for `claude mcp add` itself. Explicit "-s user" scope matches
+// installPlugin's user-scope default above, for the same reason (this view has no notion
+// of a "current project").
+export async function addMcpServer(name: string, command: string, args: string[]): Promise<{ ok: boolean; message: string }> {
+  try {
+    const bin = resolveClaudeBinary();
+    const { stdout } = await execFileAsync(bin, ['mcp', 'add', name, '-s', 'user', '--', command, ...args], {
+      timeout: PLUGIN_CMD_TIMEOUT_MS,
+    });
+    return { ok: true, message: stdout.trim() };
+  } catch (err) {
+    return { ok: false, message: commandErrorMessage(err) };
+  }
 }

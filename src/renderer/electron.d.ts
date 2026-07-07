@@ -22,6 +22,8 @@ import type {
   UninstallPluginRequest,
   UninstallPluginResponse,
   ListMcpServersResponse,
+  AddMcpServerRequest,
+  AddMcpServerResponse,
   GetClaudeVersionResponse,
   RunDoctorRequest,
   RunDoctorResponse,
@@ -80,6 +82,7 @@ export interface ElectronAPI {
     installPlugin: (req: InstallPluginRequest) => Promise<InstallPluginResponse>;
     uninstallPlugin: (req: UninstallPluginRequest) => Promise<UninstallPluginResponse>;
     listMcpServers: () => Promise<ListMcpServersResponse>;
+    addMcpServer: (req: AddMcpServerRequest) => Promise<AddMcpServerResponse>;
     getClaudeVersion: () => Promise<GetClaudeVersionResponse>;
     runDoctor: (req: RunDoctorRequest) => Promise<RunDoctorResponse>;
     getProjectSettings: (req: GetProjectSettingsRequest) => Promise<GetProjectSettingsResponse>;

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain } from 'electron';
+import { app, BrowserWindow, ipcMain, nativeTheme } from 'electron';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { SessionManager } from './claude/SessionManager';
@@ -8,7 +8,7 @@ import { listModelProviders, saveModelProvider, deleteModelProvider } from './mo
 import { setProjectPinned, setProjectCollapsed, renameProject, removeProject } from './history/projectOverrides';
 import { setSessionArchived, removeSession } from './history/sessionOverrides';
 import { forkSession } from './history/sessionForker';
-import { loadPluginCatalog, listConfiguredMcpServers, installPlugin, uninstallPlugin } from './plugins/pluginCatalog';
+import { loadPluginCatalog, listConfiguredMcpServers, installPlugin, uninstallPlugin, addMcpServer } from './plugins/pluginCatalog';
 import { getClaudeVersion, runDoctor } from './system/version';
 import { getAuthStatus } from './system/authStatus';
 import { readProjectSettings, readGlobalEnvConfig, claudeMdPath } from './system/settingsReader';
@@ -46,6 +46,7 @@ import {
   type ForkSessionRequest,
   type InstallPluginRequest,
   type UninstallPluginRequest,
+  type AddMcpServerRequest,
   type CreateTerminalRequest,
   type WriteTerminalRequest,
   type ResizeTerminalRequest,
@@ -66,6 +67,12 @@ const terminalManager = new TerminalManager((event) => {
 });
 
 function createWindow() {
+  // CCodeBox has no light-mode theme — force the dark appearance so the
+  // 'sidebar' vibrancy material renders its dark variant regardless of the
+  // OS-wide appearance setting (light system appearance would otherwise
+  // produce a pale, blown-out sidebar that clashes with the rest of the UI).
+  nativeTheme.themeSource = 'dark';
+
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
@@ -73,7 +80,10 @@ function createWindow() {
     minHeight: 600,
     titleBarStyle: 'hiddenInset',
     trafficLightPosition: { x: 15, y: 15 },
-    backgroundColor: '#1c1c1e',
+    transparent: true,
+    backgroundColor: '#00000000',
+    vibrancy: 'sidebar',
+    visualEffectState: 'active',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -154,6 +164,10 @@ ipcMain.handle(IPC.uninstallPlugin, (_event, req: UninstallPluginRequest) => {
 
 ipcMain.handle(IPC.listMcpServers, () => {
   return { servers: listConfiguredMcpServers() };
+});
+
+ipcMain.handle(IPC.addMcpServer, (_event, req: AddMcpServerRequest) => {
+  return addMcpServer(req.name, req.command, req.args);
 });
 
 ipcMain.handle(IPC.getClaudeVersion, async () => {

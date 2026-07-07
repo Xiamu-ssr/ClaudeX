@@ -15,6 +15,7 @@ export const IPC = {
   installPlugin: 'claude:installPlugin',
   uninstallPlugin: 'claude:uninstallPlugin',
   listMcpServers: 'claude:listMcpServers',
+  addMcpServer: 'claude:addMcpServer',
   getClaudeVersion: 'claude:getClaudeVersion',
   runDoctor: 'claude:runDoctor',
   getProjectSettings: 'claude:getProjectSettings',
@@ -213,6 +214,13 @@ export interface CatalogPlugin {
 // Structurally identical to CatalogPlugin now, kept as a distinct name since only
 // connector plugins are meaningfully "installable" MCP integrations in the UI.
 export type ConnectorPlugin = CatalogPlugin;
+// Third-party marketplace plugins (source outside the two known first-party local
+// paths). A plugin's own JSON never states which marketplace it came from, so the
+// marketplace name is derived by splitting id on '@' — the same convention already
+// used by readInstalledPluginNames for the installed-plugin id shape.
+export interface ThirdPartyPlugin extends CatalogPlugin {
+  marketplace: string;
+}
 export interface CustomMcpServer {
   name: string;
 }
@@ -221,6 +229,7 @@ export interface PluginCatalog {
   customMcpServers: CustomMcpServer[];
   officialSkills: CatalogPlugin[];
   personalSkills: CatalogPlugin[];
+  thirdPartyPlugins: ThirdPartyPlugin[];
 }
 export interface LoadPluginCatalogResponse {
   catalog: PluginCatalog;
@@ -249,6 +258,16 @@ export interface McpServerSummary {
 }
 export interface ListMcpServersResponse {
   servers: McpServerSummary[];
+}
+
+export interface AddMcpServerRequest {
+  name: string;
+  command: string;
+  args: string[];
+}
+export interface AddMcpServerResponse {
+  ok: boolean;
+  message: string;
 }
 
 // The following are all real, locally-derivable facts about the Claude Code CLI

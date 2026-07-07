@@ -22,6 +22,8 @@ import {
   type UninstallPluginRequest,
   type UninstallPluginResponse,
   type ListMcpServersResponse,
+  type AddMcpServerRequest,
+  type AddMcpServerResponse,
   type GetClaudeVersionResponse,
   type RunDoctorRequest,
   type RunDoctorResponse,
@@ -87,6 +89,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     uninstallPlugin: (req: UninstallPluginRequest): Promise<UninstallPluginResponse> =>
       ipcRenderer.invoke(IPC.uninstallPlugin, req),
     listMcpServers: (): Promise<ListMcpServersResponse> => ipcRenderer.invoke(IPC.listMcpServers),
+    addMcpServer: (req: AddMcpServerRequest): Promise<AddMcpServerResponse> =>
+      ipcRenderer.invoke(IPC.addMcpServer, req),
     getClaudeVersion: (): Promise<GetClaudeVersionResponse> => ipcRenderer.invoke(IPC.getClaudeVersion),
     runDoctor: (req: RunDoctorRequest): Promise<RunDoctorResponse> => ipcRenderer.invoke(IPC.runDoctor, req),
     getProjectSettings: (req: GetProjectSettingsRequest): Promise<GetProjectSettingsResponse> =>
