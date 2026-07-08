@@ -31,13 +31,14 @@
 ## ✨ 亮点
 
 - 🖥️ **真实多轮对话** — 长驻子进程 + stream-json 双向通信;工具调用、thinking 旁白、错误态实时展示为可展开步骤
+- 🧭 **对话导航条** — 对话区侧边细导航条,悬浮预览每一轮内容,一键跳转到长对话中的任意历史轮次
 - 📜 **真实历史会话** — 直接读取 `~/.claude/projects` 下的 `.jsonl`,无需额外索引
 - 🗂️ **项目 / 会话管理** — 置顶、重命名、折叠、归档、移除、Finder 定位、创建 git 工作树;软状态存独立 sidecar,绝不改动 Claude Code 的真实数据
 - 🌿 **会话分叉** — 从任意历史会话的最新一轮分叉出新会话
 - 🔌 **模型 / 供应商** — 内置 Anthropic + 自定义供应商(自定义 base URL / token),支持对话中途切模型、设 `--effort` 推理强度
-- 🛠️ **右侧工作面板** — 文件树 · Git diff · 真实终端(node-pty + xterm.js)· 内嵌浏览器,四 tab 全是真实数据,无占位
-- 🧩 **插件 / MCP** — 读取 `claude plugin list` 与 `~/.claude.json` 中配置的 MCP 服务器
-- ⚙️ **设置页** — 钩子 / 权限 / 环境变量(脱敏)/ Git 状态 / 用量统计,全部来自本机真实文件
+- 🛠️ **右侧工作面板** — 文件树(语法高亮预览)· Git diff · 真实终端(node-pty + xterm.js)· 内嵌浏览器,四 tab 全是真实数据,无占位;面板宽度可拖拽调整并记忆
+- 🧩 **插件 / MCP** — 读取 `claude plugin list` 与 `~/.claude.json`,按官方技能 / connector / 个人技能 / 第三方插件 / 自定义 MCP 服务器分类展示
+- ⚙️ **设置页** — 钩子 / 权限 / 环境变量(脱敏)/ Git 状态 / 用量统计 / 强调色主题,全部来自本机真实文件
 
 > 每个设计决策背后的取舍(为什么包装 CLI 而非 Agent SDK、stream-json→UI 映射规则、node-pty 打包三个坑的根因……)见 [DESIGN.md](./DESIGN.md)。
 
@@ -89,7 +90,6 @@ Electron · electron-forge · Vite · React 19 · TypeScript · Tailwind CSS v4 
 
 ## ⚠️ 已知局限
 
-- 尚无应用图标(用 Electron 默认)
 - 不支持多会话 / 多标签同时打开(一次仅一个 activeSession)
 - 归档与移除目前效果相同,暂无「查看已归档」入口
 - 仅在 macOS 验证(Windows / Linux 未测试)
