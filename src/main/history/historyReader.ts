@@ -52,6 +52,18 @@ function truncateTitle(text: string): string {
   return singleLine.length > TITLE_MAX_LENGTH ? `${singleLine.slice(0, TITLE_MAX_LENGTH)}...` : singleLine;
 }
 
+// A slash/local command sent as plain message text (e.g. `/context`) round-trips through the
+// CLI's own persistence as a real, non-tool-result, `isMeta:false` user line — its content
+// rewritten to this `<command-name>...</command-name>` XML wrapper — indistinguishable from a
+// genuine user turn by isMeta alone. Confirmed by hand against real `.jsonl` output for both an
+// app-triggered `/context` query and the user's own manual `/model` runs in a real terminal
+// session. Must be excluded here so it never becomes a session's displayed title or a phantom
+// turn boundary with no real reply attached (its actual local-command output round-trips as a
+// separate `type:"system"` line that loadHistoricalSession's jsonlLineToStreamLine already skips).
+function isLocalCommandEcho(content: string): boolean {
+  return content.trimStart().startsWith('<command-name>');
+}
+
 function deriveSessionTitle(filePath: string): string {
   const text = readLeadingBytes(filePath, PEEK_BYTES);
   for (const line of text.split('\n')) {
@@ -63,7 +75,12 @@ function deriveSessionTitle(filePath: string): string {
       continue;
     }
     const message = parsed.message as { content?: unknown } | undefined;
-    if (parsed.type === 'user' && !parsed.isMeta && typeof message?.content === 'string') {
+    if (
+      parsed.type === 'user' &&
+      !parsed.isMeta &&
+      typeof message?.content === 'string' &&
+      !isLocalCommandEcho(message.content)
+    ) {
       return truncateTitle(message.content);
     }
   }
@@ -158,7 +175,7 @@ export function listSessionsInProject(
 export function isTurnBoundaryLine(parsed: any): boolean {
   if (!parsed || parsed.type !== 'user' || parsed.isMeta) return false;
   const content = (parsed.message as { content?: unknown } | undefined)?.content;
-  if (typeof content === 'string') return true;
+  if (typeof content === 'string') return !isLocalCommandEcho(content);
   if (Array.isArray(content) && content.length > 0) {
     // Tool-result replies are synthetic array-content 'user' lines the CLI emits
     // after a tool call, not an actual new user turn. Real user turns with

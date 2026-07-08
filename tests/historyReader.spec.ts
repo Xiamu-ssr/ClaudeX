@@ -289,6 +289,75 @@ test('computeForkCutoffs returns an empty array for a nonexistent session file',
   }
 });
 
+test('listSessionsInProject skips a local-command echo line when deriving the title, using the real next message instead', () => {
+  // Real shape confirmed by hand: sending a slash command (e.g. `/context`) as plain message
+  // text round-trips through the CLI's persistence as a genuine, non-tool-result, isMeta:false
+  // 'user' line with content rewritten to this <command-name> XML wrapper — indistinguishable
+  // from a real user turn by isMeta alone. If a session's first message ever happens to be one
+  // of these (e.g. an ambient background query fired before the user typed anything), the title
+  // must not become this unreadable XML blob.
+  const projectsDir = makeTempProjectsDir();
+  const cwd = '/Users/test/proj';
+  try {
+    writeSessionFile(projectsDir, '-Users-test-proj', 'session-1', [
+      {
+        type: 'user',
+        isMeta: true,
+        message: { role: 'user', content: '<local-command-caveat>Caveat: the messages below...' },
+        cwd,
+        uuid: 'u0',
+      },
+      {
+        type: 'user',
+        message: { role: 'user', content: '<command-name>/context</command-name>\n<command-message>context</command-message>' },
+        cwd,
+        uuid: 'u1',
+      },
+      { type: 'system', isMeta: false, subtype: 'local_command', content: '<local-command-stdout>## Context Usage...' },
+      { type: 'user', message: { role: 'user', content: '在吗' }, cwd, uuid: 'u2' },
+    ]);
+
+    const sessions = listSessionsInProject(cwd, projectsDir);
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0].title).toBe('在吗');
+  } finally {
+    fs.rmSync(projectsDir, { recursive: true, force: true });
+  }
+});
+
+test('loadHistoricalSession does not create a phantom empty turn for a local-command echo line', () => {
+  const projectsDir = makeTempProjectsDir();
+  const cwd = '/Users/test/proj';
+  try {
+    writeSessionFile(projectsDir, '-Users-test-proj', 'session-1', [
+      { type: 'user', message: { role: 'user', content: 'say hi in 3 words' }, cwd, uuid: 'u1' },
+      { type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: 'Hello to you!' }] }, uuid: 'a1' },
+      {
+        type: 'user',
+        isMeta: true,
+        message: { role: 'user', content: '<local-command-caveat>Caveat: the messages below...' },
+        cwd,
+        uuid: 'u2',
+      },
+      {
+        type: 'user',
+        message: { role: 'user', content: '<command-name>/context</command-name>\n<command-message>context</command-message>' },
+        cwd,
+        uuid: 'u3',
+      },
+      { type: 'system', isMeta: false, subtype: 'local_command', content: '<local-command-stdout>## Context Usage...' },
+    ]);
+
+    const session = loadHistoricalSession(cwd, 'session-1', projectsDir);
+    // Exactly the one real turn — the trailing local-command echo must not appear as a second,
+    // empty user+assistant pair.
+    expect(session.messages).toHaveLength(2);
+    expect(session.messages[0]).toEqual({ role: 'user', content: 'say hi in 3 words' });
+  } finally {
+    fs.rmSync(projectsDir, { recursive: true, force: true });
+  }
+});
+
 test('computeForkCutoffs does not count a tool_result reply as a new turn boundary', () => {
   const projectsDir = makeTempProjectsDir();
   const cwd = '/Users/test/proj';

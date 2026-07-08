@@ -42,27 +42,26 @@ test.describe('context usage ring', () => {
     fs.rmSync(projectsDir, { recursive: true, force: true });
   });
 
-  test('shows context usage ring after a turn and reveals category breakdown on hover', async () => {
+  test('context usage ring fetches on hover (not automatically) and reveals category breakdown', async () => {
     // Start a new chat from the home screen.
     const textarea = page.locator('textarea').first();
     await textarea.fill('hello');
     await textarea.press('Enter');
-
-    // Wait for the fake reply to appear — the turn-completed event triggers the
-    // automatic refreshContextUsage call that populates the ring.
     await expect(page.getByText('fake-reply: hello')).toBeVisible({ timeout: 10000 });
 
-    // The ring is an SVG with the -rotate-90 Tailwind class (unique to ContextUsageRing).
-    // It only renders when contextUsage is non-null, so its presence proves the /context round trip.
-    const ring = page.locator('svg[class*="rotate-90"]').first();
-    await expect(ring).toBeVisible({ timeout: 10000 });
+    // No automatic fetch: right after the turn completes, the ring shows its neutral
+    // placeholder (no data yet) — this is deliberate, see ContextUsageRing.tsx's own comment
+    // for the real regression (delayed real messages, disk-pollution) automatic refresh caused.
+    const ringContainer = page.getByTestId('context-usage-ring');
+    await expect(ringContainer.locator('svg[class*="rotate-90"]')).toHaveCount(0);
 
-    // Hover the ring to reveal the tooltip with the category breakdown.
-    await ring.hover();
+    // Hovering triggers the fetch on demand.
+    await ringContainer.hover();
     const tooltip = page.getByTestId('context-usage-tooltip');
     await expect(tooltip).toBeVisible();
     await expect(tooltip).toContainText('System prompt');
     await expect(tooltip).toContainText('Messages');
     await expect(tooltip).toContainText('10.0k');
+    await expect(ringContainer.locator('svg[class*="rotate-90"]')).toBeVisible();
   });
 });

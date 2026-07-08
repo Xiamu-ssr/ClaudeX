@@ -43,6 +43,7 @@ interface SessionStore {
   rightPanelTab: RightPanelTab;
   previewFile: { cwd: string; relativePath: string } | null;
   contextUsage: ContextUsageSnapshot | null;
+  isQueryingContext: boolean;
   slashCommands: string[];
   queuedMessages: { id: string; text: string; attachments?: MessageAttachment[] }[];
   openFilePreview: (cwd: string, relativePath: string) => void;
@@ -181,7 +182,6 @@ export const useSessionStore = create<SessionStore>((set, get) => {
     } else if (event.kind === 'turn-completed') {
       clearWatchdog();
       get().loadProjectList();
-      get().refreshContextUsage();
     }
 
     set((s) => {
@@ -217,6 +217,10 @@ export const useSessionStore = create<SessionStore>((set, get) => {
       return {
         activeSession: { ...s.activeSession, messages },
         isProcessing: event.kind === 'turn-completed' ? false : s.isProcessing,
+        // Stale after any new turn — invalidate rather than refetch immediately (refetching
+        // automatically is what caused the context-usage bug: see refreshContextUsage's own
+        // comment). The next hover on the ring fetches a fresh value on demand.
+        contextUsage: event.kind === 'turn-completed' ? null : s.contextUsage,
       };
     });
 
@@ -255,6 +259,7 @@ export const useSessionStore = create<SessionStore>((set, get) => {
     rightPanelTab: 'files',
     previewFile: null,
     contextUsage: null,
+    isQueryingContext: false,
     slashCommands: [],
     queuedMessages: [],
 
@@ -394,7 +399,6 @@ export const useSessionStore = create<SessionStore>((set, get) => {
         slashCommands: [],
         queuedMessages: [],
       });
-      get().refreshContextUsage();
       await get().loadProjectList();
     },
 
@@ -418,13 +422,14 @@ export const useSessionStore = create<SessionStore>((set, get) => {
         extraEnv: provider?.env,
       });
       set({ activeSessionId: sessionId, activeSession: session, isProcessing: false, contextUsage: null, slashCommands: [], queuedMessages: [] });
-      get().refreshContextUsage();
     },
 
     sendMessage: async (text, attachments) => {
       const state = get();
       if (!state.activeSessionId || !state.activeSession) return;
-      if (state.isProcessing) return;
+      // isQueryingContext: a /context side-channel query is using this same session's stdin —
+      // see refreshContextUsage's comment for why writing a real message on top of it is unsafe.
+      if (state.isProcessing || state.isQueryingContext) return;
 
       const isFirstMessage = state.activeSession.messages.length === 0;
       const userMsg: ChatMessage = { role: 'user', content: text, attachments };
@@ -469,14 +474,27 @@ export const useSessionStore = create<SessionStore>((set, get) => {
       await stopSessionInternal(state.activeSessionId);
     },
 
+    // Deliberately NOT called automatically (not on turn-completed, not on session switch) —
+    // only ever from a manual user action (the ring's own hover handler). Earlier this fired
+    // automatically and caused a real, confirmed regression: the CLI's `--resume` startup +
+    // `/context`'s own processing can take tens of seconds of real wall-clock time even though
+    // it's free of model cost, and while it's in flight it occupies the session's single stdin
+    // stream — a real message the user sent moments after switching sessions queued up right
+    // behind it, got delayed by that same latency, and (separately) the `/context` invocation's
+    // own bookkeeping lines persist to the real session .jsonl (see historyReader.ts's
+    // isLocalCommandEcho for the read-side fix). isQueryingContext exists specifically so
+    // sendMessage can refuse to write to stdin while this is in flight, closing that race.
     refreshContextUsage: async () => {
       const state = get();
-      if (!state.activeSessionId || state.isProcessing) return;
+      if (!state.activeSessionId || state.isProcessing || state.isQueryingContext) return;
+      set({ isQueryingContext: true });
       try {
         const result = await window.electronAPI.claude.getContextUsage({ sessionId: state.activeSessionId });
         if (result.ok && result.usage) set({ contextUsage: result.usage });
       } catch {
-        // best-effort background refresh; keep showing the last known snapshot on failure
+        // best-effort; keep showing the last known snapshot (or none) on failure
+      } finally {
+        set({ isQueryingContext: false });
       }
     },
   };

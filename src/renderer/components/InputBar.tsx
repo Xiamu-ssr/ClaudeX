@@ -46,6 +46,7 @@ export function InputBar({ mode = 'home', isProcessing = false, onSend, onStop }
   const permissionMode = useSessionStore((s) => s.permissionMode);
   const setPermissionMode = useSessionStore((s) => s.setPermissionMode);
   const slashCommands = useSessionStore((s) => s.slashCommands);
+  const isQueryingContext = useSessionStore((s) => s.isQueryingContext);
   const queuedMessages = useSessionStore((s) => s.queuedMessages);
   const queueMessage = useSessionStore((s) => s.queueMessage);
   const removeQueuedMessage = useSessionStore((s) => s.removeQueuedMessage);
@@ -167,7 +168,10 @@ export function InputBar({ mode = 'home', isProcessing = false, onSend, onStop }
 
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      if (isProcessing) {
+      // isQueryingContext: sendMessage itself refuses to fire while a context-usage side-channel
+      // query is using this session's stdin (see sessionStore.ts) — queue instead of silently
+      // dropping the message, same as the real isProcessing case.
+      if (isProcessing || isQueryingContext) {
         handleQueue();
       } else {
         handleSend();
@@ -317,7 +321,8 @@ export function InputBar({ mode = 'home', isProcessing = false, onSend, onStop }
               </>
             ) : (
               <button
-                onClick={handleSend}
+                onClick={isQueryingContext ? handleQueue : handleSend}
+                title={isQueryingContext ? '正在查询上下文用量，发送将先排队' : undefined}
                 className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ml-1 ${message.trim() ? 'bg-white hover:bg-neutral-200' : 'bg-neutral-600 hover:bg-neutral-500'}`}
               >
                 <ArrowUp size={16} className={message.trim() ? 'text-black' : 'text-white'} />
