@@ -465,7 +465,16 @@ function ConnectorCard({ plugin, pending, error, onInstall, onUninstall }: { plu
         <div className="text-xs text-text-secondary truncate">{plugin.description}</div>
         {error && <div className="text-xs text-red-400 truncate mt-0.5">{error}</div>}
       </div>
-      <InstallButton installed={plugin.installed} pending={pending} onInstall={onInstall} onUninstall={onUninstall} />
+      {plugin.configuredOutsidePlugin ? (
+        <span
+          className="text-xs text-neutral-400 px-3 py-1.5 shrink-0"
+          title="已通过 claude mcp add 等方式直接配置。如需通过插件市场安装管理，请先在终端运行 claude mcp remove 移除现有配置"
+        >
+          已直接配置
+        </span>
+      ) : (
+        <InstallButton installed={plugin.installed} pending={pending} onInstall={onInstall} onUninstall={onUninstall} />
+      )}
     </div>
   );
 }

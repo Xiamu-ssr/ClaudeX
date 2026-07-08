@@ -159,6 +159,7 @@ if (args[0] === '--version') {
     cwd: process.cwd(),
     tools: [],
     model: 'fake-model',
+    slash_commands: ['clear', 'compact', 'context', 'demo-skill', 'review'],
   });
 
   const rl = readline.createInterface({ input: process.stdin });
@@ -195,7 +196,34 @@ if (args[0] === '--version') {
     // "processing" UI state, not just instant completion.
     pending++;
     setTimeout(() => {
-      if (userText.includes('__SIMULATE_ERROR__')) {
+      if (userText === '/context') {
+        const contextReport = [
+          '## Context Usage',
+          '',
+          '**Model:** fake-model',
+          '**Tokens:** 12.0k / 200k (6%)',
+          '',
+          '### Estimated usage by category',
+          '',
+          '| Category | Tokens | Percentage |',
+          '|----------|--------|------------|',
+          '| System prompt | 2.0k | 1.0% |',
+          '| Messages | 10.0k | 5.0% |',
+          '| Free space | 188.0k | 94.0% |',
+        ].join('\n');
+        emit({
+          type: 'assistant',
+          message: { role: 'assistant', content: [{ type: 'text', text: contextReport }] },
+          session_id: sessionId,
+        });
+        emit({
+          type: 'result',
+          subtype: 'success',
+          result: contextReport,
+          duration_ms: 50,
+          session_id: sessionId,
+        });
+      } else if (userText.includes('__SIMULATE_ERROR__')) {
         // A well-formed but failed turn: the real CLI still emits a complete `result` line
         // with is_error:true (e.g. an incompatible model/effort combination), it isn't a hang.
         emit({

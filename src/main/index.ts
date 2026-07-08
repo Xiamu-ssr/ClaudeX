@@ -15,6 +15,7 @@ import { readProjectSettings, readGlobalEnvConfig, claudeMdPath } from './system
 import { computeUsageStats } from './system/usageStats';
 import { getGitStatus, getGitWorktrees, getGitDiff, createWorktree } from './system/git';
 import { listDirEntries, getFilePreview } from './system/fileTree';
+import { parseContextUsageMarkdown } from './claude/contextUsage';
 import fs from 'node:fs';
 import { shell } from 'electron';
 import {
@@ -32,6 +33,8 @@ import {
   type GetGitStatusRequest,
   type GetGitWorktreesRequest,
   type GetGitDiffRequest,
+  type GetContextUsageRequest,
+  type GetContextUsageResponse,
   type ListDirEntriesRequest,
   type GetFilePreviewRequest,
   type SetProjectPinnedRequest,
@@ -203,6 +206,19 @@ ipcMain.handle(IPC.getGitWorktrees, (_event, req: GetGitWorktreesRequest) => {
 
 ipcMain.handle(IPC.getGitDiff, (_event, req: GetGitDiffRequest) => {
   return getGitDiff(req.cwd);
+});
+
+ipcMain.handle(IPC.getContextUsage, async (_event, req: GetContextUsageRequest): Promise<GetContextUsageResponse> => {
+  const session = sessionManager.get(req.sessionId);
+  if (!session) return { ok: false, message: '没有找到对应会话' };
+  try {
+    const text = await session.queryContextUsage();
+    const usage = parseContextUsageMarkdown(text);
+    if (!usage) return { ok: false, message: '无法解析 /context 返回内容' };
+    return { ok: true, usage };
+  } catch (err) {
+    return { ok: false, message: err instanceof Error ? err.message : String(err) };
+  }
 });
 
 ipcMain.handle(IPC.listDirEntries, (_event, req: ListDirEntriesRequest) => {

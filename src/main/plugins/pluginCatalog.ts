@@ -156,7 +156,7 @@ export async function loadPluginCatalog(): Promise<PluginCatalog> {
     if (typeof plugin.source === 'string' && plugin.source.startsWith('./plugins/')) {
       officialSkills.push(entry);
     } else if (typeof plugin.source === 'string' && plugin.source.startsWith('./external_plugins/')) {
-      connectors.push(entry);
+      connectors.push({ ...entry, configuredOutsidePlugin: configuredNames.has(entry.name) && !entry.installed });
     } else {
       const marketplace = plugin.pluginId.includes('@') ? plugin.pluginId.split('@')[1] : '未知来源';
       thirdPartyPlugins.push({ ...entry, marketplace });

@@ -62,6 +62,8 @@ export class ClaudeSession {
   private proc: ChildProcessWithoutNullStreams | null = null;
   private readonly splitter = new NdjsonLineSplitter();
   private currentAcc: TurnAccumulator | null = null;
+  private pendingContextQuery: { resolve: (v: string) => void; reject: (e: Error) => void } | null = null;
+  private contextQueryText: string | undefined;
 
   messages: ChatMessage[] = [];
 
@@ -149,6 +151,25 @@ export class ClaudeSession {
     this.proc.stdin.write(line);
   }
 
+  // Sends Claude Code's own `/context` local command down this session's existing stdin and
+  // resolves with its raw markdown text once the corresponding `result` line arrives — a
+  // side-channel query that does NOT touch `this.messages` or fire any `onEvent` turn deltas,
+  // so it never appears as a visible chat bubble. Only safe to call between turns (guarded by
+  // `this.currentAcc` below): the CLI processes one line at a time, so as long as no real turn
+  // is in flight, the next stdout lines unambiguously belong to this query until its own
+  // `result` line appears.
+  queryContextUsage(): Promise<string> {
+    if (!this.proc || !this.proc.stdin.writable) return Promise.reject(new Error('会话未在运行'));
+    if (this.currentAcc) return Promise.reject(new Error('有轮次正在进行中，无法查询上下文'));
+    if (this.pendingContextQuery) return Promise.reject(new Error('已有一个上下文查询正在进行'));
+    return new Promise((resolve, reject) => {
+      this.pendingContextQuery = { resolve, reject };
+      this.contextQueryText = undefined;
+      const line = JSON.stringify({ type: 'user', message: { role: 'user', content: '/context' } }) + '\n';
+      this.proc!.stdin.write(line);
+    });
+  }
+
   // Returns once the child process has actually exited, not just once stdin has been
   // closed — callers that respawn with --resume (e.g. mid-conversation model switches)
   // need the old process to have fully flushed its session .jsonl before starting a new
@@ -178,6 +199,30 @@ export class ClaudeSession {
     try {
       parsed = JSON.parse(rawLine);
     } catch {
+      return;
+    }
+
+    if (parsed.type === 'system' && parsed.subtype === 'init') {
+      const slashCommands = Array.isArray((parsed as Record<string, unknown>).slash_commands)
+        ? ((parsed as Record<string, unknown>).slash_commands as unknown[]).filter((c): c is string => typeof c === 'string')
+        : [];
+      this.onEvent({ kind: 'session-ready', sessionId: this.sessionId, slashCommands });
+      return;
+    }
+
+    if (this.pendingContextQuery) {
+      if (parsed.type === 'assistant') {
+        const content = parsed.message?.content;
+        if (Array.isArray(content)) {
+          const textBlock = content.find((b) => b.type === 'text' && typeof b.text === 'string');
+          if (textBlock?.text) this.contextQueryText = textBlock.text as string;
+        }
+      } else if (parsed.type === 'result') {
+        const { resolve } = this.pendingContextQuery;
+        this.pendingContextQuery = null;
+        resolve(this.contextQueryText ?? (typeof parsed.result === 'string' ? parsed.result : ''));
+        this.contextQueryText = undefined;
+      }
       return;
     }
 

@@ -1,7 +1,9 @@
 import { useRef, useState } from 'react';
-import { Plus, ShieldCheck, ShieldAlert, ChevronDown, Mic, ArrowUp, Square, FileText, Check, X } from 'lucide-react';
+import { Plus, ShieldCheck, ShieldAlert, ChevronDown, Mic, ArrowUp, Square, FileText, Check, X, Clock } from 'lucide-react';
 import { useSessionStore } from '../store/sessionStore';
 import { ModelEffortPicker } from './ModelEffortPicker';
+import { ContextUsageRing } from './ContextUsageRing';
+import { SlashCommandMenu } from './SlashCommandMenu';
 import type { PermissionMode } from '../../shared/ipc';
 import type { MessageAttachment } from '../types/chat';
 
@@ -35,6 +37,7 @@ export function InputBar({ mode = 'home', isProcessing = false, onSend, onStop }
   const [projectMenuOpen, setProjectMenuOpen] = useState(false);
   const [attachments, setAttachments] = useState<MessageAttachment[]>([]);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
+  const [slashHighlightIndex, setSlashHighlightIndex] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const projects = useSessionStore((s) => s.projects);
@@ -42,10 +45,33 @@ export function InputBar({ mode = 'home', isProcessing = false, onSend, onStop }
   const setSelectedProjectCwd = useSessionStore((s) => s.setSelectedProjectCwd);
   const permissionMode = useSessionStore((s) => s.permissionMode);
   const setPermissionMode = useSessionStore((s) => s.setPermissionMode);
+  const slashCommands = useSessionStore((s) => s.slashCommands);
+  const queuedMessages = useSessionStore((s) => s.queuedMessages);
+  const queueMessage = useSessionStore((s) => s.queueMessage);
+  const removeQueuedMessage = useSessionStore((s) => s.removeQueuedMessage);
 
   const placeholder = mode === 'home' ? '随心输入' : '要求后续变更';
   const selectedProject = projects.find((p) => p.cwd === selectedProjectCwd);
   const canAddMore = attachments.length < MAX_ATTACHMENTS;
+
+  const slashMenuMatch = mode === 'chat' ? message.match(/^\/(\S*)$/) : null;
+  const slashMenuOpen = slashMenuMatch !== null;
+  const slashFilter = (slashMenuMatch?.[1] ?? '').toLowerCase();
+  const filteredSlashCommands = slashMenuOpen
+    ? slashCommands
+        .filter((name) => name.toLowerCase().includes(slashFilter))
+        .sort((a, b) => {
+          const aStarts = a.toLowerCase().startsWith(slashFilter);
+          const bStarts = b.toLowerCase().startsWith(slashFilter);
+          if (aStarts !== bStarts) return aStarts ? -1 : 1;
+          return a.localeCompare(b);
+        })
+    : [];
+
+  const selectSlashCommand = (name: string) => {
+    setMessage(`/${name} `);
+    setSlashHighlightIndex(0);
+  };
 
   const addFiles = async (files: FileList | File[]) => {
     if (!canAddMore) {
@@ -105,18 +131,72 @@ export function InputBar({ mode = 'home', isProcessing = false, onSend, onStop }
     setAttachmentError(null);
   };
 
+  const handleQueue = () => {
+    const trimmed = message.trim();
+    if (!trimmed) return;
+    queueMessage(trimmed, attachments.length > 0 ? attachments : undefined);
+    setMessage('');
+    setAttachments([]);
+    setAttachmentError(null);
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (slashMenuOpen && filteredSlashCommands.length > 0) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setSlashHighlightIndex((i) => (i + 1) % filteredSlashCommands.length);
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setSlashHighlightIndex((i) => (i - 1 + filteredSlashCommands.length) % filteredSlashCommands.length);
+        return;
+      }
+      if (e.key === 'Enter' || e.key === 'Tab') {
+        e.preventDefault();
+        selectSlashCommand(filteredSlashCommands[Math.min(slashHighlightIndex, filteredSlashCommands.length - 1)]);
+        return;
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setMessage('');
+        return;
+      }
+      return;
+    }
+
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      if (isProcessing) return;
-      handleSend();
+      if (isProcessing) {
+        handleQueue();
+      } else {
+        handleSend();
+      }
     }
   };
 
   return (
     <div className="w-full">
+      {queuedMessages.length > 0 && (
+        <div className="mb-2 flex flex-col gap-1.5">
+          {queuedMessages.map((qm) => (
+            <div
+              key={qm.id}
+              data-testid="queued-message-chip"
+              className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/5 border border-card-border text-xs text-neutral-300"
+            >
+              <Clock size={12} className="text-text-tertiary shrink-0" />
+              <span className="flex-1 truncate">{qm.text}</span>
+              <button onClick={() => removeQueuedMessage(qm.id)} className="text-text-tertiary hover:text-neutral-200 shrink-0">
+                <X size={12} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
       {/* Input card */}
-      <div className="border border-card-border rounded-2xl bg-card">
+      <div className="relative border border-card-border rounded-2xl bg-card">
+        <SlashCommandMenu open={slashMenuOpen} items={filteredSlashCommands} highlightedIndex={Math.min(slashHighlightIndex, Math.max(filteredSlashCommands.length - 1, 0))} onSelect={selectSlashCommand} />
         {/* Attachment previews */}
         {attachments.length > 0 && (
           <div className="px-4 pt-4 flex flex-wrap gap-2">
@@ -140,7 +220,10 @@ export function InputBar({ mode = 'home', isProcessing = false, onSend, onStop }
         <div className="px-4 pt-4 pb-2">
           <textarea
             value={message}
-            onChange={(e) => setMessage(e.target.value)}
+            onChange={(e) => {
+              setMessage(e.target.value);
+              setSlashHighlightIndex(0);
+            }}
             onKeyDown={handleKeyDown}
             onPaste={handlePaste}
             placeholder={placeholder}
@@ -209,17 +292,29 @@ export function InputBar({ mode = 'home', isProcessing = false, onSend, onStop }
 
           {/* Right controls */}
           <div className="flex items-center gap-1">
+            {mode === 'chat' && <ContextUsageRing />}
             <ModelEffortPicker mode={mode} />
             <button className="p-1.5 hover:bg-white/5 rounded-lg transition-colors text-neutral-400 hover:text-neutral-200">
               <Mic size={18} />
             </button>
             {isProcessing ? (
-              <button
-                onClick={() => onStop?.()}
-                className="w-8 h-8 rounded-full border-2 border-accent-orange flex items-center justify-center transition-colors ml-1 hover:bg-white/5"
-              >
-                <Square size={12} className="text-accent-orange fill-accent-orange" />
-              </button>
+              <>
+                <button
+                  onClick={() => onStop?.()}
+                  className="w-8 h-8 rounded-full border-2 border-accent-orange flex items-center justify-center transition-colors ml-1 hover:bg-white/5"
+                >
+                  <Square size={12} className="text-accent-orange fill-accent-orange" />
+                </button>
+                {message.trim() && (
+                  <button
+                    onClick={handleQueue}
+                    title="排队，等当前回复完成后自动发送"
+                    className="w-8 h-8 rounded-full bg-white hover:bg-neutral-200 flex items-center justify-center transition-colors ml-1"
+                  >
+                    <ArrowUp size={16} className="text-black" />
+                  </button>
+                )}
+              </>
             ) : (
               <button
                 onClick={handleSend}

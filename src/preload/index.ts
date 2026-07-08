@@ -38,6 +38,8 @@ import {
   type GitWorktreesResponse,
   type GetGitDiffRequest,
   type GetGitDiffResponse,
+  type GetContextUsageRequest,
+  type GetContextUsageResponse,
   type ListDirEntriesRequest,
   type ListDirEntriesResponse,
   type GetFilePreviewRequest,
@@ -103,6 +105,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     getGitWorktrees: (req: GetGitWorktreesRequest): Promise<GitWorktreesResponse> =>
       ipcRenderer.invoke(IPC.getGitWorktrees, req),
     getGitDiff: (req: GetGitDiffRequest): Promise<GetGitDiffResponse> => ipcRenderer.invoke(IPC.getGitDiff, req),
+    getContextUsage: (req: GetContextUsageRequest): Promise<GetContextUsageResponse> => ipcRenderer.invoke(IPC.getContextUsage, req),
     listDirEntries: (req: ListDirEntriesRequest): Promise<ListDirEntriesResponse> =>
       ipcRenderer.invoke(IPC.listDirEntries, req),
     getFilePreview: (req: GetFilePreviewRequest): Promise<GetFilePreviewResponse> =>

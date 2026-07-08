@@ -38,6 +38,8 @@ import type {
   GitWorktreesResponse,
   GetGitDiffRequest,
   GetGitDiffResponse,
+  GetContextUsageRequest,
+  GetContextUsageResponse,
   ListDirEntriesRequest,
   ListDirEntriesResponse,
   GetFilePreviewRequest,
@@ -91,6 +93,7 @@ export interface ElectronAPI {
     getGitStatus: (req: GetGitStatusRequest) => Promise<GitStatusResponse>;
     getGitWorktrees: (req: GetGitWorktreesRequest) => Promise<GitWorktreesResponse>;
     getGitDiff: (req: GetGitDiffRequest) => Promise<GetGitDiffResponse>;
+    getContextUsage: (req: GetContextUsageRequest) => Promise<GetContextUsageResponse>;
     listDirEntries: (req: ListDirEntriesRequest) => Promise<ListDirEntriesResponse>;
     getFilePreview: (req: GetFilePreviewRequest) => Promise<GetFilePreviewResponse>;
     setProjectPinned: (req: SetProjectPinnedRequest) => Promise<void>;

@@ -10,6 +10,7 @@ import type {
   ShowInFinderResponse,
   CreateWorktreeResponse,
   ForkSessionResponse,
+  ContextUsageSnapshot,
 } from '../../shared/ipc';
 
 const DEFAULT_PROVIDER_ID = 'builtin-anthropic';
@@ -41,6 +42,9 @@ interface SessionStore {
   rightPanelOpen: boolean;
   rightPanelTab: RightPanelTab;
   previewFile: { cwd: string; relativePath: string } | null;
+  contextUsage: ContextUsageSnapshot | null;
+  slashCommands: string[];
+  queuedMessages: { id: string; text: string; attachments?: MessageAttachment[] }[];
   openFilePreview: (cwd: string, relativePath: string) => void;
   closeFilePreview: () => void;
   setSelectedProjectCwd: (cwd: string) => void;
@@ -67,7 +71,10 @@ interface SessionStore {
   startNewChat: (cwd: string, projectName: string) => Promise<void>;
   openHistoricalSession: (cwd: string, sessionId: string) => Promise<void>;
   sendMessage: (text: string, attachments?: MessageAttachment[]) => Promise<void>;
+  queueMessage: (text: string, attachments?: MessageAttachment[]) => void;
+  removeQueuedMessage: (id: string) => void;
   stopSession: () => Promise<void>;
+  refreshContextUsage: () => Promise<void>;
 }
 
 function truncateTitle(text: string): string {
@@ -113,6 +120,7 @@ export const useSessionStore = create<SessionStore>((set, get) => {
       messages[lastIdx] = { role: 'assistant', turn };
       return { activeSession: { ...s.activeSession, messages }, isProcessing: false };
     });
+    maybeDrainQueue(sessionId);
   };
 
   const armWatchdog = (sessionId: string) => {
@@ -122,9 +130,28 @@ export const useSessionStore = create<SessionStore>((set, get) => {
     }, WATCHDOG_TIMEOUT_MS);
   };
 
+  // Pops and sends the next queued message once a turn genuinely finishes — success, a
+  // deliberate stop, or a crash, any path that flips `isProcessing` back to false. Must only
+  // be called AFTER the `set` call that actually flips the store's `isProcessing` to false, never
+  // before: `sendMessage` itself guards on `state.isProcessing` and would silently no-op if
+  // called one tick too early (confirmed by reading sendMessage's own guard clause).
+  const maybeDrainQueue = (sessionId: string) => {
+    const state = get();
+    if (!state.activeSession || state.activeSession.id !== sessionId) return;
+    if (state.queuedMessages.length === 0) return;
+    const [next, ...rest] = state.queuedMessages;
+    set({ queuedMessages: rest });
+    get().sendMessage(next.text, next.attachments);
+  };
+
   window.electronAPI.claude.onSessionEvent((event: ClaudeSessionEvent) => {
     const state = get();
     if (!state.activeSession || state.activeSession.id !== event.sessionId) return;
+
+    if (event.kind === 'session-ready') {
+      set({ slashCommands: event.slashCommands });
+      return;
+    }
 
     if (event.kind === 'process-error' || event.kind === 'process-exited') {
       // A deliberate stop (explicit "stop" or changeModelMidConversation's stop+respawn)
@@ -154,6 +181,7 @@ export const useSessionStore = create<SessionStore>((set, get) => {
     } else if (event.kind === 'turn-completed') {
       clearWatchdog();
       get().loadProjectList();
+      get().refreshContextUsage();
     }
 
     set((s) => {
@@ -191,6 +219,10 @@ export const useSessionStore = create<SessionStore>((set, get) => {
         isProcessing: event.kind === 'turn-completed' ? false : s.isProcessing,
       };
     });
+
+    if (event.kind === 'turn-completed') {
+      maybeDrainQueue(event.sessionId);
+    }
   });
 
   // Cleared inside onSessionEvent's process-error/process-exited handling, not here — the
@@ -222,6 +254,9 @@ export const useSessionStore = create<SessionStore>((set, get) => {
     rightPanelOpen: false,
     rightPanelTab: 'files',
     previewFile: null,
+    contextUsage: null,
+    slashCommands: [],
+    queuedMessages: [],
 
     setSelectedProjectCwd: (cwd) => set({ selectedProjectCwd: cwd }),
     setPermissionMode: (mode) => set({ permissionMode: mode }),
@@ -355,7 +390,11 @@ export const useSessionStore = create<SessionStore>((set, get) => {
         activeSessionId: sessionId,
         activeSession: emptySession(sessionId, cwd, projectName),
         isProcessing: false,
+        contextUsage: null,
+        slashCommands: [],
+        queuedMessages: [],
       });
+      get().refreshContextUsage();
       await get().loadProjectList();
     },
 
@@ -378,7 +417,8 @@ export const useSessionStore = create<SessionStore>((set, get) => {
         effort: effortLevel ?? undefined,
         extraEnv: provider?.env,
       });
-      set({ activeSessionId: sessionId, activeSession: session, isProcessing: false });
+      set({ activeSessionId: sessionId, activeSession: session, isProcessing: false, contextUsage: null, slashCommands: [], queuedMessages: [] });
+      get().refreshContextUsage();
     },
 
     sendMessage: async (text, attachments) => {
@@ -414,10 +454,30 @@ export const useSessionStore = create<SessionStore>((set, get) => {
       });
     },
 
+    queueMessage: (text, attachments) => {
+      const id = crypto.randomUUID();
+      set((s) => ({ queuedMessages: [...s.queuedMessages, { id, text, attachments }] }));
+    },
+
+    removeQueuedMessage: (id) => {
+      set((s) => ({ queuedMessages: s.queuedMessages.filter((m) => m.id !== id) }));
+    },
+
     stopSession: async () => {
       const state = get();
       if (!state.activeSessionId) return;
       await stopSessionInternal(state.activeSessionId);
+    },
+
+    refreshContextUsage: async () => {
+      const state = get();
+      if (!state.activeSessionId || state.isProcessing) return;
+      try {
+        const result = await window.electronAPI.claude.getContextUsage({ sessionId: state.activeSessionId });
+        if (result.ok && result.usage) set({ contextUsage: result.usage });
+      } catch {
+        // best-effort background refresh; keep showing the last known snapshot on failure
+      }
     },
   };
 });

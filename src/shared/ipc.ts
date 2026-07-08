@@ -24,6 +24,7 @@ export const IPC = {
   getGitStatus: 'claude:getGitStatus',
   getGitWorktrees: 'claude:getGitWorktrees',
   getGitDiff: 'claude:getGitDiff',
+  getContextUsage: 'claude:getContextUsage',
   listDirEntries: 'claude:listDirEntries',
   getFilePreview: 'claude:getFilePreview',
   setProjectPinned: 'claude:setProjectPinned',
@@ -211,9 +212,17 @@ export interface CatalogPlugin {
   // `claude plugin list --json` — not related to CustomMcpServer below.
   installed: boolean;
 }
-// Structurally identical to CatalogPlugin now, kept as a distinct name since only
-// connector plugins are meaningfully "installable" MCP integrations in the UI.
-export type ConnectorPlugin = CatalogPlugin;
+// Connector plugins are MCP-server-backed marketplace entries. They carry one
+// extra field beyond CatalogPlugin: whether an MCP server of the same name is
+// already configured directly (e.g. via `claude mcp add`, outside the plugin/
+// marketplace install system) — installing this connector would collide with
+// that config and the CLI rejects it.
+export interface ConnectorPlugin extends CatalogPlugin {
+  // True when an MCP server of this same name is already configured directly (e.g. via
+  // `claude mcp add`, outside the plugin/marketplace install system) — installing this
+  // connector would collide with that config and the CLI rejects it.
+  configuredOutsidePlugin: boolean;
+}
 // Third-party marketplace plugins (source outside the two known first-party local
 // paths). A plugin's own JSON never states which marketplace it came from, so the
 // marketplace name is derived by splitting id on '@' — the same convention already
@@ -386,6 +395,27 @@ export interface GetGitDiffResponse {
   files: GitFileDiff[];
 }
 
+export interface ContextUsageCategory {
+  label: string;
+  tokens: number;
+  percent: number;
+}
+export interface ContextUsageSnapshot {
+  modelLabel: string;
+  usedTokens: number;
+  totalTokens: number;
+  usedPercent: number;
+  categories: ContextUsageCategory[];
+}
+export interface GetContextUsageRequest {
+  sessionId: string;
+}
+export interface GetContextUsageResponse {
+  ok: boolean;
+  usage?: ContextUsageSnapshot;
+  message?: string;
+}
+
 export interface FileTreeEntry {
   name: string;
   relativePath: string;
@@ -435,7 +465,8 @@ export type ClaudeSessionEvent =
   | { kind: 'turn-response-updated'; sessionId: string; response: string }
   | { kind: 'turn-completed'; sessionId: string; processingTime: number; isError?: boolean }
   | { kind: 'process-exited'; sessionId: string; code: number | null }
-  | { kind: 'process-error'; sessionId: string; message: string };
+  | { kind: 'process-error'; sessionId: string; message: string }
+  | { kind: 'session-ready'; sessionId: string; slashCommands: string[] };
 
 export interface CreateTerminalRequest {
   cwd: string;
