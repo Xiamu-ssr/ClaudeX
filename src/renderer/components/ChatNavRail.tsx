@@ -38,12 +38,12 @@ export function ChatNavRail({ ticks, onSelect }: ChatNavRailProps) {
           <button
             onClick={() => onSelect(tick.index)}
             aria-label={`跳转到第 ${tick.index + 1} 轮`}
-            className={`block h-[3px] rounded-full transition-all duration-200 ${
-              hoveredIndex === tick.index ? 'w-8 bg-white/80' : 'w-4 bg-white/30 hover:bg-white/50'
+            className={`block h-[2px] rounded-full transition-all duration-200 ease-out ${
+              hoveredIndex === tick.index ? 'w-9 bg-white' : 'w-3 bg-white/25 hover:bg-white/50'
             }`}
           />
           {hoveredIndex === tick.index && (
-            <div className="absolute left-10 top-1/2 -translate-y-1/2 w-64 bg-[#2a2a2c] border border-card-border rounded-lg shadow-xl px-3 py-2 z-20">
+            <div className="absolute left-14 top-1/2 -translate-y-1/2 w-64 bg-[#2a2a2c] border border-card-border rounded-lg shadow-xl px-3 py-2 z-20">
               <p className="text-xs text-neutral-300 line-clamp-3">{tick.snippet}</p>
             </div>
           )}
