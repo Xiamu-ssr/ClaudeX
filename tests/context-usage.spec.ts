@@ -42,26 +42,45 @@ test.describe('context usage ring', () => {
     fs.rmSync(projectsDir, { recursive: true, force: true });
   });
 
-  test('context usage ring fetches on hover (not automatically) and reveals category breakdown', async () => {
+  test('context usage ring auto-populates after the first turn (unthrottled) and reveals category breakdown on hover', async () => {
     // Start a new chat from the home screen.
     const textarea = page.locator('textarea').first();
     await textarea.fill('hello');
     await textarea.press('Enter');
     await expect(page.getByText('fake-reply: hello')).toBeVisible({ timeout: 10000 });
 
-    // No automatic fetch: right after the turn completes, the ring shows its neutral
-    // placeholder (no data yet) — this is deliberate, see ContextUsageRing.tsx's own comment
-    // for the real regression (delayed real messages, disk-pollution) automatic refresh caused.
+    // The first turn-completed in a session always fires the auto-refresh (the throttle only
+    // blocks a *second* fetch within CONTEXT_REFRESH_THROTTLE_MS of the first) — see
+    // sessionStore.ts's turn-completed handler.
     const ringContainer = page.getByTestId('context-usage-ring');
-    await expect(ringContainer.locator('svg[class*="rotate-90"]')).toHaveCount(0);
+    await expect(ringContainer.locator('svg[class*="rotate-90"]')).toBeVisible({ timeout: 10000 });
 
-    // Hovering triggers the fetch on demand.
+    // Hovering reveals the breakdown for whatever's already cached (no re-fetch needed).
     await ringContainer.hover();
     const tooltip = page.getByTestId('context-usage-tooltip');
     await expect(tooltip).toBeVisible();
     await expect(tooltip).toContainText('System prompt');
     await expect(tooltip).toContainText('Messages');
     await expect(tooltip).toContainText('10.0k');
+  });
+
+  test('context usage ring does not re-fetch on a second turn within the throttle window', async () => {
+    const textarea = page.locator('textarea').first();
+    await textarea.fill('first');
+    await textarea.press('Enter');
+    await expect(page.getByText('fake-reply: first')).toBeVisible({ timeout: 10000 });
+
+    const ringContainer = page.getByTestId('context-usage-ring');
+    await expect(ringContainer.locator('svg[class*="rotate-90"]')).toBeVisible({ timeout: 10000 });
+
+    const chatInput = page.getByPlaceholder('要求后续变更');
+    await chatInput.fill('second');
+    await chatInput.press('Enter');
+    await expect(page.getByText('fake-reply: second')).toBeVisible({ timeout: 10000 });
+
+    // Still just the cached ring, no stuck "querying" state from a throttled-away second fetch.
     await expect(ringContainer.locator('svg[class*="rotate-90"]')).toBeVisible();
+    await ringContainer.hover();
+    await expect(page.getByTestId('context-usage-tooltip')).not.toContainText('查询中');
   });
 });

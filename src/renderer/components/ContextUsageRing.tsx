@@ -13,12 +13,14 @@ const STROKE = 2.5;
 const RADIUS = (SIZE - STROKE) / 2;
 const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
 
-// Fetches on hover, deliberately not automatically. An earlier version auto-refreshed on every
-// turn-completed/session-switch and caused a real regression: the CLI's `--resume` startup plus
-// /context's own processing can take tens of seconds of real wall-clock time (confirmed by
-// hand), and while in flight it occupies the session's single stdin stream — a real message
-// the user sent moments later queued up behind it and was delayed by that same latency. Manual
-// hover keeps the feature but bounds the cost to only when someone actually asks.
+// Auto-refreshes after each turn (throttled — see sessionStore.ts's turn-completed handler),
+// and hover also fetches on demand if nothing's cached yet (e.g. the throttle window hasn't
+// allowed an automatic fetch yet). An earlier version fired on every single turn-completed and
+// on every session-switch with no throttling, which caused a real regression: /context can take
+// tens of seconds of real wall-clock time in an environment with several MCP servers connected
+// (confirmed by hand — it enumerates every connected server's tool schemas), and while in
+// flight it occupies the session's single stdin stream. sessionStore.ts's isQueryingContext
+// flag plus the throttle together keep this from ever blocking a real message for long or often.
 export function ContextUsageRing() {
   const [hovering, setHovering] = useState(false);
   const usage = useSessionStore((s) => s.contextUsage);

@@ -92,6 +92,9 @@ export const useSessionStore = create<SessionStore>((set, get) => {
   // process-exited event that naturally follows isn't mistaken for a crash.
   let pendingStopSessionId: string | null = null;
   let watchdogTimer: ReturnType<typeof setTimeout> | null = null;
+  // Throttles the automatic context-usage refresh below — see its use-site comment.
+  let lastContextFetchAt: number | null = null;
+  const CONTEXT_REFRESH_THROTTLE_MS = 60_000;
 
   const clearWatchdog = () => {
     if (watchdogTimer) {
@@ -184,6 +187,14 @@ export const useSessionStore = create<SessionStore>((set, get) => {
       get().loadProjectList();
     }
 
+    // Decided up front so the invalidation below and the actual trigger after the `set` stay
+    // consistent: only clear the cached ring value if we're also about to refresh it — a
+    // throttled-away turn keeps showing the last (slightly stale) value instead of flickering
+    // to the empty placeholder and back for no reason.
+    const willAutoRefreshContext =
+      event.kind === 'turn-completed' &&
+      (lastContextFetchAt === null || Date.now() - lastContextFetchAt > CONTEXT_REFRESH_THROTTLE_MS);
+
     set((s) => {
       if (!s.activeSession) return s;
       const messages = [...s.activeSession.messages];
@@ -217,15 +228,23 @@ export const useSessionStore = create<SessionStore>((set, get) => {
       return {
         activeSession: { ...s.activeSession, messages },
         isProcessing: event.kind === 'turn-completed' ? false : s.isProcessing,
-        // Stale after any new turn — invalidate rather than refetch immediately (refetching
-        // automatically is what caused the context-usage bug: see refreshContextUsage's own
-        // comment). The next hover on the ring fetches a fresh value on demand.
-        contextUsage: event.kind === 'turn-completed' ? null : s.contextUsage,
+        contextUsage: willAutoRefreshContext ? null : s.contextUsage,
       };
     });
 
     if (event.kind === 'turn-completed') {
       maybeDrainQueue(event.sessionId);
+      // Only AFTER the `set` above has actually flipped isProcessing to false — calling this
+      // any earlier hits refreshContextUsage's own isProcessing guard and silently no-ops, the
+      // same trap maybeDrainQueue already had to avoid (see its comment). /context measurably
+      // takes 10-40s wall-clock in an environment with several MCP servers connected
+      // (confirmed by hand — it enumerates every connected server's tool schemas, unlike
+      // near-instant commands like /usage), so firing after every single turn would mean the
+      // user is often waiting behind it (isQueryingContext blocks sendMessage). Throttled to
+      // once per CONTEXT_REFRESH_THROTTLE_MS; manual hover on the ring still works in between.
+      if (willAutoRefreshContext) {
+        get().refreshContextUsage();
+      }
     }
   });
 
@@ -474,19 +493,21 @@ export const useSessionStore = create<SessionStore>((set, get) => {
       await stopSessionInternal(state.activeSessionId);
     },
 
-    // Deliberately NOT called automatically (not on turn-completed, not on session switch) —
-    // only ever from a manual user action (the ring's own hover handler). Earlier this fired
-    // automatically and caused a real, confirmed regression: the CLI's `--resume` startup +
-    // `/context`'s own processing can take tens of seconds of real wall-clock time even though
-    // it's free of model cost, and while it's in flight it occupies the session's single stdin
-    // stream — a real message the user sent moments after switching sessions queued up right
-    // behind it, got delayed by that same latency, and (separately) the `/context` invocation's
-    // own bookkeeping lines persist to the real session .jsonl (see historyReader.ts's
-    // isLocalCommandEcho for the read-side fix). isQueryingContext exists specifically so
-    // sendMessage can refuse to write to stdin while this is in flight, closing that race.
+    // Called automatically (throttled — see the turn-completed handler above) and from the
+    // ring's own manual hover handler. Never called on session-switch/session-start: `/context`
+    // can take tens of seconds of real wall-clock time in an environment with several MCP
+    // servers connected (confirmed by hand — it enumerates every connected server's tool
+    // schemas), and while it's in flight it occupies the session's single stdin stream — a
+    // real message sent during that window would otherwise queue up right behind it. Two
+    // things make this safe now: isQueryingContext blocks sendMessage from writing to stdin
+    // while a query is in flight (InputBar queues the message instead of losing it, same path
+    // as an in-flight turn), and separately, the `/context` invocation's own bookkeeping lines
+    // that persist to the real session .jsonl no longer corrupt anything on replay (see
+    // historyReader.ts's isLocalCommandEcho for that read-side fix).
     refreshContextUsage: async () => {
       const state = get();
       if (!state.activeSessionId || state.isProcessing || state.isQueryingContext) return;
+      lastContextFetchAt = Date.now();
       set({ isQueryingContext: true });
       try {
         const result = await window.electronAPI.claude.getContextUsage({ sessionId: state.activeSessionId });

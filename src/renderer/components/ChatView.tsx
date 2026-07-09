@@ -24,7 +24,9 @@ export function ChatView({ session, isProcessing, onSend, onStop, onSessionArchi
   const [forking, setForking] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const turnRefs = useRef<Map<number, HTMLDivElement>>(new Map());
+  const navAreaRef = useRef<HTMLDivElement>(null);
   const [ticks, setTicks] = useState<ChatNavTick[]>([]);
+  const [navAreaHeight, setNavAreaHeight] = useState(0);
 
   useEffect(() => {
     const next: ChatNavTick[] = [];
@@ -34,6 +36,19 @@ export function ChatView({ session, isProcessing, onSend, onStop, onSessionArchi
     });
     setTicks(next);
   }, [session.messages]);
+
+  // The rail needs the real available height to decide when to shrink its tick spacing
+  // toward the floor and, beyond that, when to show only the most recent N turns instead.
+  useEffect(() => {
+    const el = navAreaRef.current;
+    if (!el) return;
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (entry) setNavAreaHeight(entry.contentRect.height);
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
 
   const handleTickSelect = (index: number) => {
     const container = scrollRef.current;
@@ -121,7 +136,7 @@ export function ChatView({ session, isProcessing, onSend, onStop, onSessionArchi
       </div>
 
       {/* Messages */}
-      <div className="flex-1 relative min-h-0">
+      <div ref={navAreaRef} className="flex-1 relative min-h-0">
         <div ref={scrollRef} className="h-full overflow-y-auto px-6 py-4">
           <div className="max-w-[820px] mx-auto">
             {session.messages.map((msg, i) => (
@@ -138,7 +153,7 @@ export function ChatView({ session, isProcessing, onSend, onStop, onSessionArchi
             ))}
           </div>
         </div>
-        <ChatNavRail ticks={ticks} onSelect={handleTickSelect} />
+        <ChatNavRail ticks={ticks} onSelect={handleTickSelect} containerHeight={navAreaHeight} />
       </div>
 
       {/* Input */}

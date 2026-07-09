@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Plus, ShieldCheck, ShieldAlert, ChevronDown, Mic, ArrowUp, Square, FileText, Check, X, Clock } from 'lucide-react';
 import { useSessionStore } from '../store/sessionStore';
 import { ModelEffortPicker } from './ModelEffortPicker';
@@ -17,6 +17,27 @@ interface InputBarProps {
 const permissionModeLabels: Record<PermissionMode, string> = {
   bypassPermissions: '完全访问',
   default: '默认权限',
+};
+
+// The live `slash_commands` list (from the CLI's own session-init event) mixes real,
+// user-invocable built-ins with internal/deprecated ones — confirmed by hand: `/agents` now
+// just prints "The /agents wizard has been removed", and names like `__remote-workflow`,
+// `heapdump`, `design-consent`/`design-revoke`/`team-onboarding`/`insights`/`recap`/`goal` have
+// no confirmed, documented, general-purpose behavior. Rather than show the CLI's raw list and
+// hope every future/internal command name is harmless, the menu only ever offers a command if
+// it's on this explicit allowlist (verified real, stable, useful as a bare invocation) OR it
+// matches a real name in the user's own plugin/skill catalog (see SlashCommandMenu.tsx) —
+// unknown names are excluded by default, not included by default. Still fully sendable by
+// typing the whole command manually; this only curates what the popup suggests.
+const KNOWN_GOOD_BUILTINS: Record<string, string> = {
+  clear: '清空当前对话上下文（历史仍保留，可通过 --resume 找回）',
+  compact: '压缩对话历史，摘要保留关键上下文',
+  context: '查看当前上下文窗口占用情况',
+  init: '生成或更新项目的 CLAUDE.md',
+  review: '审查一个 GitHub PR',
+  'security-review': '对当前改动做一次安全审查',
+  usage: '查看用量与费用统计',
+  config: '查看或修改 CLI 配置（需要参数，例如 /config model=opus）',
 };
 
 const MAX_ATTACHMENTS = 5;
@@ -38,7 +59,22 @@ export function InputBar({ mode = 'home', isProcessing = false, onSend, onStop }
   const [attachments, setAttachments] = useState<MessageAttachment[]>([]);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const [slashHighlightIndex, setSlashHighlightIndex] = useState(0);
+  const [catalogDescriptions, setCatalogDescriptions] = useState<Record<string, string>>({});
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (mode !== 'chat') return;
+    window.electronAPI.claude
+      .loadPluginCatalog()
+      .then(({ catalog }) => {
+        const map: Record<string, string> = {};
+        for (const p of [...catalog.officialSkills, ...catalog.personalSkills, ...catalog.connectors, ...catalog.thirdPartyPlugins]) {
+          if (p.description) map[p.name] = p.description;
+        }
+        setCatalogDescriptions(map);
+      })
+      .catch(() => {});
+  }, [mode]);
 
   const projects = useSessionStore((s) => s.projects);
   const selectedProjectCwd = useSessionStore((s) => s.selectedProjectCwd);
@@ -58,8 +94,12 @@ export function InputBar({ mode = 'home', isProcessing = false, onSend, onStop }
   const slashMenuMatch = mode === 'chat' ? message.match(/^\/(\S*)$/) : null;
   const slashMenuOpen = slashMenuMatch !== null;
   const slashFilter = (slashMenuMatch?.[1] ?? '').toLowerCase();
+  // Curate first (allowlisted built-in OR a real catalog name), then text-filter/sort — the
+  // curation step must run before anything index-based (highlight, arrow-key wrap) so those
+  // stay consistent with what's actually rendered.
   const filteredSlashCommands = slashMenuOpen
     ? slashCommands
+        .filter((name) => name in KNOWN_GOOD_BUILTINS || name in catalogDescriptions)
         .filter((name) => name.toLowerCase().includes(slashFilter))
         .sort((a, b) => {
           const aStarts = a.toLowerCase().startsWith(slashFilter);
@@ -68,6 +108,7 @@ export function InputBar({ mode = 'home', isProcessing = false, onSend, onStop }
           return a.localeCompare(b);
         })
     : [];
+  const slashMenuItems = filteredSlashCommands.map((name) => ({ name, description: catalogDescriptions[name] ?? KNOWN_GOOD_BUILTINS[name] }));
 
   const selectSlashCommand = (name: string) => {
     setMessage(`/${name} `);
@@ -200,7 +241,7 @@ export function InputBar({ mode = 'home', isProcessing = false, onSend, onStop }
       )}
       {/* Input card */}
       <div className="relative border border-card-border rounded-2xl bg-card">
-        <SlashCommandMenu open={slashMenuOpen} items={filteredSlashCommands} highlightedIndex={Math.min(slashHighlightIndex, Math.max(filteredSlashCommands.length - 1, 0))} onSelect={selectSlashCommand} />
+        <SlashCommandMenu open={slashMenuOpen} items={slashMenuItems} highlightedIndex={Math.min(slashHighlightIndex, Math.max(slashMenuItems.length - 1, 0))} onSelect={selectSlashCommand} />
         {/* Attachment previews */}
         {attachments.length > 0 && (
           <div className="px-4 pt-4 flex flex-wrap gap-2">
