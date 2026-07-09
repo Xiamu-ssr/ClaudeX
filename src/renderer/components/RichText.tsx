@@ -8,7 +8,7 @@ interface RichTextProps {
 }
 
 const components: Components = {
-  p: ({ children }) => <p className="mb-3 last:mb-0 leading-relaxed">{children}</p>,
+  p: ({ children }) => <p className="mb-3 last:mb-0 leading-[1.7]">{children}</p>,
   strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
   em: ({ children }) => <em className="italic">{children}</em>,
   a: ({ children, href }) => (
@@ -25,7 +25,7 @@ const components: Components = {
   ),
   ul: ({ children }) => <ul className="list-disc pl-5 mb-3 space-y-1">{children}</ul>,
   ol: ({ children }) => <ol className="list-decimal pl-5 mb-3 space-y-1">{children}</ol>,
-  li: ({ children }) => <li className="leading-relaxed">{children}</li>,
+  li: ({ children }) => <li className="leading-[1.7]">{children}</li>,
   h1: ({ children }) => <h1 className="text-xl font-semibold mb-2 mt-1">{children}</h1>,
   h2: ({ children }) => <h2 className="text-lg font-semibold mb-2 mt-1">{children}</h2>,
   h3: ({ children }) => <h3 className="text-base font-semibold mb-2 mt-1">{children}</h3>,
@@ -44,7 +44,7 @@ const components: Components = {
   th: ({ children }) => <th className="border border-card-border px-2 py-1 text-left font-medium">{children}</th>,
   td: ({ children }) => <td className="border border-card-border px-2 py-1 text-left">{children}</td>,
   pre: ({ children }) => (
-    <pre className="bg-[#1c1c1e] border border-card-border rounded-lg p-3 overflow-x-auto text-[13px] font-mono text-neutral-300 mb-3">
+    <pre className="bg-[#1c1c1e] border border-card-border rounded-lg p-3.5 overflow-x-auto text-[13px] font-mono text-neutral-300 leading-[1.6] mb-3">
       {children}
     </pre>
   ),
@@ -66,7 +66,7 @@ const components: Components = {
       return <code className={className}>{children}</code>;
     }
     return (
-      <code className="bg-[#3a3a3c] px-1.5 py-0.5 rounded text-[13px] text-neutral-300 font-mono">
+      <code className="bg-[#4a4a4d] px-1.5 py-0.5 rounded-md text-[13px] text-neutral-200 font-mono">
         {children}
       </code>
     );

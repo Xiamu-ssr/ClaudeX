@@ -126,6 +126,80 @@ function readPersonalSkillNames(): string[] {
     .map((e) => e.name);
 }
 
+interface InstalledPluginDetail {
+  name: string;
+  marketplace: string;
+  description: string;
+  installCount: number;
+  hasMcpServers: boolean;
+}
+
+// `claude plugin list --available --json` (used above for the marketplace catalog) excludes
+// already-installed plugins entirely — confirmed by hand, not an assumption — so anything
+// installed disappears from the three arrays above unless recovered here. `claude plugin
+// list --json` (already used by readInstalledPluginNames) gives the authoritative installed
+// set, but only a minimal shape (id/version/scope/installPath/...) — no description, no
+// category. Recover both from real local sources: the plugin's own manifest file (written to
+// disk at install time, confirmed present at `<installPath>/.claude-plugin/plugin.json` with
+// real `description`), and `claude plugin details <name>` for whether it provides any MCP
+// servers (its own text-only "Component inventory" section prints e.g. "MCP servers (2)" —
+// confirmed by hand; there is no --json variant for this subcommand, so this parses that
+// text output defensively and defaults to `hasMcpServers: false` if parsing fails for any
+// reason, which is the safer default (worst case an MCP-backed plugin lands in Skills/
+// third-party instead of Connectors, not a crash).
+async function readInstalledPluginDetails(): Promise<InstalledPluginDetail[]> {
+  try {
+    const bin = resolveClaudeBinary();
+    const { stdout } = await execFileAsync(bin, ['plugin', 'list', '--json'], {
+      timeout: PLUGIN_CMD_TIMEOUT_MS,
+    });
+    const parsed = JSON.parse(stdout) as Array<{ id?: string; installPath?: string }>;
+    const entries = Array.isArray(parsed) ? parsed : [];
+
+    return await Promise.all(
+      entries
+        .filter((e): e is { id: string; installPath?: string } => typeof e.id === 'string')
+        .map(async (entry) => {
+          const [name, marketplace] = entry.id.split('@');
+          let description = '';
+          if (entry.installPath) {
+            try {
+              const manifestRaw = fs.readFileSync(
+                path.join(entry.installPath, '.claude-plugin', 'plugin.json'),
+                'utf8',
+              );
+              const manifest = JSON.parse(manifestRaw) as { description?: string };
+              description = manifest.description ?? '';
+            } catch {
+              // manifest missing or unreadable — leave description empty rather than guessing
+            }
+          }
+
+          let hasMcpServers = false;
+          try {
+            const { stdout: detailsOut } = await execFileAsync(bin, ['plugin', 'details', name], {
+              timeout: PLUGIN_CMD_TIMEOUT_MS,
+            });
+            const match = detailsOut.match(/MCP servers\s*\((\d+)\)/);
+            hasMcpServers = match ? Number(match[1]) > 0 : false;
+          } catch {
+            // details command failed — default false (see comment above on why that's the safe default)
+          }
+
+          return {
+            name,
+            marketplace: marketplace ?? '未知来源',
+            description,
+            installCount: 0,
+            hasMcpServers,
+          };
+        }),
+    );
+  } catch {
+    return [];
+  }
+}
+
 export async function loadPluginCatalog(): Promise<PluginCatalog> {
   const [available, installedNames] = await Promise.all([readAvailablePlugins(), readInstalledPluginNames()]);
   const configuredNames = readConfiguredMcpServerNames();
@@ -166,6 +240,33 @@ export async function loadPluginCatalog(): Promise<PluginCatalog> {
   officialSkills.sort((a, b) => b.installCount - a.installCount);
   connectors.sort((a, b) => b.installCount - a.installCount);
   thirdPartyPlugins.sort((a, b) => b.installCount - a.installCount);
+
+  // `claude plugin list --available --json` (used above) omits already-installed plugins
+  // entirely — confirmed by hand, not an assumption — so anything the user has installed
+  // via `claude plugin install` vanishes from all three arrays above. Recover those entries
+  // here from `claude plugin list --json` + each plugin's on-disk manifest + `claude plugin
+  // details`, all real local sources (no invented data). See readInstalledPluginDetails above.
+  const installedDetails = await readInstalledPluginDetails();
+  const namesAlreadyShown = new Set(
+    [...officialSkills, ...connectors, ...thirdPartyPlugins].map((p) => p.name),
+  );
+  for (const detail of installedDetails) {
+    if (namesAlreadyShown.has(detail.name)) continue; // still in `available` (not yet installed at time of that fetch's own listing, or timing), don't duplicate
+    const entry: CatalogPlugin = {
+      id: `${detail.name}@${detail.marketplace}`,
+      name: detail.name,
+      description: detail.description,
+      installCount: detail.installCount,
+      installed: true,
+    };
+    if (detail.hasMcpServers) {
+      connectors.push({ ...entry, configuredOutsidePlugin: false });
+    } else if (detail.marketplace === 'claude-plugins-official') {
+      officialSkills.push(entry);
+    } else {
+      thirdPartyPlugins.push({ ...entry, marketplace: detail.marketplace });
+    }
+  }
 
   // Servers configured directly (e.g. via `claude mcp add`), not through the plugin/marketplace
   // system at all — e.g. a hosted MCP endpoint like Tavily. Independent of `installed` above.

@@ -6,6 +6,10 @@ export interface ToolUseStep {
   toolName?: string;
   isError?: boolean;
   pending?: boolean;
+  // Raw tool input, used by rich per-tool-type rendering (Edit/Write file-diff rows) —
+  // kept as `unknown` and narrowed per toolName at render time, since different tools have
+  // completely different input shapes and this project never fabricates a shared shape for them.
+  input?: unknown;
 }
 
 export interface ThinkingStep {

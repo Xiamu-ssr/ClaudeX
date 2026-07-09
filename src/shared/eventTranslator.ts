@@ -69,6 +69,7 @@ export function applyLine(acc: TurnAccumulator, line: ClaudeStdoutLine): ApplyLi
             toolUseId: block.id,
             toolName: name,
             pending: true,
+            input: block.input,
           };
           acc.steps.push(step);
           deltas.push({ kind: 'step-appended', step });

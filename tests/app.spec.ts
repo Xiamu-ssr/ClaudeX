@@ -344,8 +344,12 @@ test('plugins view: connectors and skills reflect the real local plugin catalog,
 
   // Tavily is a real MCP server read directly from this machine's ~/.claude.json via
   // listConfiguredMcpServers() (plain fs.readFileSync, not routed through the CLI at all) —
-  // still real data even with the fake binary in place, surfaced as an "installed" icon.
-  await expect(page.locator('[title="tavily（自定义 MCP 服务器）"]')).toBeVisible();
+  // still real data even with the fake binary in place. It surfaces under the connectors
+  // 个人 filter tab as a PersonalMcpCard (the old decorative icon-row above the filter tabs
+  // was removed in favor of a real 已安装 filter tab, so 个人 is where directly-configured
+  // servers now live in the UI).
+  await page.getByRole('button', { name: '个人' }).click();
+  await expect(page.getByText('tavily', { exact: true })).toBeVisible();
 
   await page.getByRole('button', { name: '技能' }).click();
   await expect(page.getByText('demo-skill', { exact: true })).toBeVisible();

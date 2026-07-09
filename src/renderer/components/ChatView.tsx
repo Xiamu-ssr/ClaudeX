@@ -148,7 +148,7 @@ export function ChatView({ session, isProcessing, onSend, onStop, onSessionArchi
                   else turnRefs.current.delete(i);
                 }}
               >
-                <ChatMessage message={msg} />
+                <ChatMessage message={msg} cwd={session.cwd} />
               </div>
             ))}
           </div>

@@ -61,6 +61,19 @@ const FIXTURE_CATALOG = [
 const PLUGIN_STATE_PATH =
   process.env.CCODEBOX_FAKE_PLUGIN_STATE || path.join(os.tmpdir(), 'ccodebox-fake-plugin-state.json');
 
+// Real `claude plugin list --available --json` excludes already-installed plugins entirely
+// (confirmed by hand against the real CLI), and `claude plugin list --json` (installed, no
+// --available) returns entries with `installPath` pointing at a real on-disk plugin cache dir
+// whose `.claude-plugin/plugin.json` carries the manifest — including `description`. To
+// reproduce the real bug scenario (a plugin installed but no longer in --available's output),
+// the fake fixture writes a real `.claude-plugin/plugin.json` into a per-test scratch dir for
+// each installed id, and surfaces that dir as `installPath` in the non-available `list`
+// response. readInstalledPluginDetails() in pluginCatalog.ts then reads the manifest exactly
+// as it does against the real CLI.
+const PLUGIN_MANIFESTS_DIR =
+  process.env.CCODEBOX_FAKE_PLUGIN_MANIFESTS_DIR ||
+  path.join(path.dirname(PLUGIN_STATE_PATH), 'ccodebox-fake-plugin-manifests');
+
 function readInstalledPluginIds() {
   try {
     const parsed = JSON.parse(fs.readFileSync(PLUGIN_STATE_PATH, 'utf8'));
@@ -74,17 +87,74 @@ function writeInstalledPluginIds(ids) {
   fs.writeFileSync(PLUGIN_STATE_PATH, JSON.stringify([...ids]));
 }
 
+// Writes a real `.claude-plugin/plugin.json` manifest for the given installed plugin id, so
+// readInstalledPluginDetails()'s manifest-read path exercises a real file on disk (matches
+// the real CLI's on-disk layout: `<installPath>/.claude-plugin/plugin.json`). The description
+// is derived deterministically from the plugin id so tests can assert on it without needing
+// to coordinate a separate description store. A test can also pre-write its own manifest at a
+// known installPath (via CCODEBOX_FAKE_PLUGIN_MANIFESTS_DIR) to control the description.
+function ensureManifestFor(pluginId) {
+  fs.mkdirSync(PLUGIN_MANIFESTS_DIR, { recursive: true });
+  const installPath = path.join(PLUGIN_MANIFESTS_DIR, pluginId.replace(/[^a-zA-Z0-9@._-]/g, '_'));
+  const manifestDir = path.join(installPath, '.claude-plugin');
+  fs.mkdirSync(manifestDir, { recursive: true });
+  // Only write if absent — a test may have pre-written a custom manifest with a specific
+  // description before this call, and that should be preserved.
+  const manifestPath = path.join(manifestDir, 'plugin.json');
+  if (!fs.existsSync(manifestPath)) {
+    const name = pluginId.split('@')[0];
+    fs.writeFileSync(
+      manifestPath,
+      JSON.stringify({ name, description: `Installed fixture plugin: ${name}` }, null, 2),
+    );
+  }
+  return installPath;
+}
+
 function handlePluginCommand(subArgs) {
   const action = subArgs[0];
 
   if (action === 'list' && subArgs.includes('--available')) {
-    process.stdout.write(JSON.stringify({ available: FIXTURE_CATALOG }) + '\n');
+    // Real `claude plugin list --available --json` excludes already-installed plugins entirely
+    // (confirmed by hand, not an assumption) — mirror that behavior here so the fixture
+    // reproduces the real bug rather than masking it. Without this, every installed fixture
+    // plugin would still appear in --available's output and loadPluginCatalog's recovery path
+    // would never be exercised.
+    const installedNames = new Set(
+      [...readInstalledPluginIds()].map((id) => id.split('@')[0]),
+    );
+    const available = FIXTURE_CATALOG.filter((p) => !installedNames.has(p.name));
+    process.stdout.write(JSON.stringify({ available }) + '\n');
     process.exit(0);
   }
 
   if (action === 'list') {
-    const entries = [...readInstalledPluginIds()].map((id) => ({ id, version: '1.0.0', scope: 'user' }));
+    // Real `claude plugin list --json` returns entries with `installPath` pointing at the
+    // plugin's on-disk cache dir; readInstalledPluginDetails() reads `<installPath>/.claude-
+    // plugin/plugin.json` from that path for the description. Mirror the same layout here so
+    // the fixture exercises the same manifest-read code path as the real CLI.
+    const entries = [...readInstalledPluginIds()].map((id) => {
+      const installPath = ensureManifestFor(id);
+      return { id, version: '1.0.0', scope: 'user', installPath };
+    });
     process.stdout.write(JSON.stringify(entries) + '\n');
+    process.exit(0);
+  }
+
+  // `claude plugin details <name>` has no --json variant; its text output includes a
+  // "Component inventory" section printing e.g. "MCP servers (2)". readInstalledPluginDetails
+  // parses that line to decide whether to bucket the installed plugin as a connector. Mirror
+  // the real semantics: a plugin whose FIXTURE_CATALOG source lives under ./external_plugins/
+  // is a connector (MCP-server-backed), everything else (skills, third-party) has 0 MCP servers.
+  // For seeded/unknown plugins (not in FIXTURE_CATALOG), default to 0 — the safer default that
+  // matches readInstalledPluginDetails' own fallback, landing them in skills/third-party.
+  if (action === 'details') {
+    const pluginName = subArgs[1];
+    const fixtureEntry = FIXTURE_CATALOG.find((p) => p.name === pluginName);
+    const isConnector =
+      fixtureEntry && typeof fixtureEntry.source === 'string' && fixtureEntry.source.startsWith('./external_plugins/');
+    const count = isConnector ? 1 : 0;
+    process.stdout.write(`Component inventory\n  MCP servers (${count})\n`);
     process.exit(0);
   }
 

@@ -293,20 +293,20 @@ export function InputBar({ mode = 'home', isProcessing = false, onSend, onStop }
               onClick={() => fileInputRef.current?.click()}
               disabled={!canAddMore}
               title={canAddMore ? '添加图片' : `最多添加 ${MAX_ATTACHMENTS} 张图片`}
-              className="p-1.5 hover:bg-white/5 rounded-lg transition-colors text-neutral-400 hover:text-neutral-200 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+              className="p-1 hover:bg-white/5 rounded-lg transition-colors text-neutral-400 hover:text-neutral-200 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
             >
-              <Plus size={18} />
+              <Plus size={16} />
             </button>
 
             {/* Permission mode picker */}
             <div className="relative">
               <button
                 onClick={() => setPermissionMenuOpen(!permissionMenuOpen)}
-                className="flex items-center gap-1.5 text-sm text-accent-amber hover:bg-white/5 px-2 py-1.5 rounded-lg transition-colors"
+                className="flex items-center gap-1 text-[13px] text-accent-amber hover:bg-white/5 px-1.5 py-1 rounded-lg transition-colors"
               >
-                {permissionMode === 'bypassPermissions' ? <ShieldCheck size={15} /> : <ShieldAlert size={15} />}
+                {permissionMode === 'bypassPermissions' ? <ShieldCheck size={13} /> : <ShieldAlert size={13} />}
                 {permissionModeLabels[permissionMode]}
-                <ChevronDown size={14} className="text-text-secondary" />
+                <ChevronDown size={12} className="text-text-secondary" />
               </button>
               {permissionMenuOpen && (
                 <>
@@ -339,24 +339,24 @@ export function InputBar({ mode = 'home', isProcessing = false, onSend, onStop }
           <div className="flex items-center gap-1">
             {mode === 'chat' && <ContextUsageRing />}
             <ModelEffortPicker mode={mode} />
-            <button className="p-1.5 hover:bg-white/5 rounded-lg transition-colors text-neutral-400 hover:text-neutral-200">
-              <Mic size={18} />
+            <button className="p-1 hover:bg-white/5 rounded-lg transition-colors text-neutral-400 hover:text-neutral-200">
+              <Mic size={16} />
             </button>
             {isProcessing ? (
               <>
                 <button
                   onClick={() => onStop?.()}
-                  className="w-8 h-8 rounded-full border-2 border-accent-orange flex items-center justify-center transition-colors ml-1 hover:bg-white/5"
+                  className="w-7 h-7 rounded-full border-2 border-accent-orange flex items-center justify-center transition-colors ml-1 hover:bg-white/5"
                 >
-                  <Square size={12} className="text-accent-orange fill-accent-orange" />
+                  <Square size={11} className="text-accent-orange fill-accent-orange" />
                 </button>
                 {message.trim() && (
                   <button
                     onClick={handleQueue}
                     title="排队，等当前回复完成后自动发送"
-                    className="w-8 h-8 rounded-full bg-white hover:bg-neutral-200 flex items-center justify-center transition-colors ml-1"
+                    className="w-7 h-7 rounded-full bg-white hover:bg-neutral-200 flex items-center justify-center transition-colors ml-1"
                   >
-                    <ArrowUp size={16} className="text-black" />
+                    <ArrowUp size={14} className="text-black" />
                   </button>
                 )}
               </>
@@ -364,9 +364,9 @@ export function InputBar({ mode = 'home', isProcessing = false, onSend, onStop }
               <button
                 onClick={isQueryingContext ? handleQueue : handleSend}
                 title={isQueryingContext ? '正在查询上下文用量，发送将先排队' : undefined}
-                className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ml-1 ${message.trim() ? 'bg-white hover:bg-neutral-200' : 'bg-neutral-600 hover:bg-neutral-500'}`}
+                className={`w-7 h-7 rounded-full flex items-center justify-center transition-colors ml-1 ${message.trim() ? 'bg-white hover:bg-neutral-200' : 'bg-neutral-600 hover:bg-neutral-500'}`}
               >
-                <ArrowUp size={16} className={message.trim() ? 'text-black' : 'text-white'} />
+                <ArrowUp size={14} className={message.trim() ? 'text-black' : 'text-white'} />
               </button>
             )}
           </div>

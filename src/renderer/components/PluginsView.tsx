@@ -9,8 +9,9 @@ import {
 import type { CatalogPlugin, ConnectorPlugin, CustomMcpServer, PluginCatalog, ThirdPartyPlugin } from '../../shared/ipc';
 
 type PluginTab = 'connectors' | 'plugins' | 'skills';
-type SkillFilter = 'official' | 'personal';
-type ConnectorFilter = 'official' | 'featured' | 'personal';
+type SkillFilter = 'official' | 'installed' | 'personal';
+type ConnectorFilter = 'official' | 'installed' | 'featured' | 'personal';
+type PluginFilter = 'official' | 'installed';
 
 const PALETTE = [
   '#5E6AD2', '#0F9D58', '#D93025', '#4285F4', '#9C27B0',
@@ -62,6 +63,7 @@ export function PluginsView() {
   const [activeTab, setActiveTab] = useState<PluginTab>('connectors');
   const [skillFilter, setSkillFilter] = useState<SkillFilter>('official');
   const [connectorFilter, setConnectorFilter] = useState<ConnectorFilter>('official');
+  const [pluginFilter, setPluginFilter] = useState<PluginFilter>('official');
   const [searchQuery, setSearchQuery] = useState('');
   const [catalog, setCatalog] = useState<PluginCatalog | null>(null);
   const [pendingIds, setPendingIds] = useState<Set<string>>(new Set());
@@ -139,12 +141,19 @@ export function PluginsView() {
     );
   }
 
-  const installedConnectors = catalog.connectors.filter((c) => c.installed);
-  const skillList = skillFilter === 'official' ? catalog.officialSkills : catalog.personalSkills;
+  const installedSkills = catalog.officialSkills.filter((p) => p.installed);
+  const skillList =
+    skillFilter === 'official'
+      ? catalog.officialSkills
+      : skillFilter === 'installed'
+        ? installedSkills
+        : catalog.personalSkills;
 
   const filteredConnectors = catalog.connectors.filter((p) => matchesSearch(p.name, p.description, searchQuery));
+  const filteredInstalledConnectors = filteredConnectors.filter((p) => p.installed);
   const filteredSkills = skillList.filter((p) => matchesSearch(p.name, p.description, searchQuery));
   const filteredThirdParty = catalog.thirdPartyPlugins.filter((p) => matchesSearch(p.name, p.description, searchQuery));
+  const filteredInstalledThirdParty = filteredThirdParty.filter((p) => p.installed);
   const filteredFeatured = FEATURED_MCP_SERVERS.filter((s) => matchesSearch(s.name, s.description, searchQuery));
 
   return (
@@ -211,40 +220,6 @@ export function PluginsView() {
             />
           </div>
 
-          {/* Installed section */}
-          {activeTab === 'connectors' && (installedConnectors.length > 0 || catalog.customMcpServers.length > 0) && (
-            <div className="mb-8">
-              <div className="flex items-center justify-between mb-3">
-                <h2 className="text-base font-semibold text-white">已安装</h2>
-                <button className="p-1 rounded hover:bg-white/5 transition-colors text-text-secondary">
-                  <Settings size={14} />
-                </button>
-              </div>
-              <div className="flex items-center gap-3 flex-wrap">
-                {installedConnectors.map((p) => (
-                  <div
-                    key={p.id}
-                    className="w-10 h-10 rounded-xl flex items-center justify-center text-xs font-bold text-white shrink-0 cursor-pointer hover:opacity-80 transition-opacity"
-                    style={{ backgroundColor: colorForName(p.name) }}
-                    title={p.name}
-                  >
-                    {initials(p.name)}
-                  </div>
-                ))}
-                {catalog.customMcpServers.map((s) => (
-                  <div
-                    key={s.name}
-                    className="w-10 h-10 rounded-xl flex items-center justify-center text-xs font-bold text-white shrink-0 cursor-pointer hover:opacity-80 transition-opacity"
-                    style={{ backgroundColor: colorForName(s.name) }}
-                    title={`${s.name}（自定义 MCP 服务器）`}
-                  >
-                    {initials(s.name)}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
           {/* Connector filter tabs */}
           {activeTab === 'connectors' && (
             <div className="flex items-center gap-1 mb-6">
@@ -253,6 +228,12 @@ export function PluginsView() {
                 className={`px-3 py-1.5 rounded-lg text-sm transition-colors ${connectorFilter === 'official' ? 'bg-white/10 text-white' : 'text-text-secondary hover:text-neutral-300 hover:bg-white/5'}`}
               >
                 官方
+              </button>
+              <button
+                onClick={() => setConnectorFilter('installed')}
+                className={`px-3 py-1.5 rounded-lg text-sm transition-colors ${connectorFilter === 'installed' ? 'bg-white/10 text-white' : 'text-text-secondary hover:text-neutral-300 hover:bg-white/5'}`}
+              >
+                已安装
               </button>
               <button
                 onClick={() => setConnectorFilter('featured')}
@@ -273,6 +254,28 @@ export function PluginsView() {
             </div>
           )}
 
+          {/* Plugin filter tabs */}
+          {activeTab === 'plugins' && (
+            <div className="flex items-center gap-1 mb-6">
+              <button
+                onClick={() => setPluginFilter('official')}
+                className={`px-3 py-1.5 rounded-lg text-sm transition-colors ${pluginFilter === 'official' ? 'bg-white/10 text-white' : 'text-text-secondary hover:text-neutral-300 hover:bg-white/5'}`}
+              >
+                官方
+              </button>
+              <button
+                onClick={() => setPluginFilter('installed')}
+                className={`px-3 py-1.5 rounded-lg text-sm transition-colors ${pluginFilter === 'installed' ? 'bg-white/10 text-white' : 'text-text-secondary hover:text-neutral-300 hover:bg-white/5'}`}
+              >
+                已安装
+              </button>
+              <div className="flex-1" />
+              <button className="p-1.5 rounded-lg hover:bg-white/5 transition-colors text-text-secondary">
+                <SlidersHorizontal size={14} />
+              </button>
+            </div>
+          )}
+
           {/* Skill filter tabs */}
           {activeTab === 'skills' && (
             <div className="flex items-center gap-1 mb-6">
@@ -281,6 +284,12 @@ export function PluginsView() {
                 className={`px-3 py-1.5 rounded-lg text-sm transition-colors ${skillFilter === 'official' ? 'bg-white/10 text-white' : 'text-text-secondary hover:text-neutral-300 hover:bg-white/5'}`}
               >
                 官方
+              </button>
+              <button
+                onClick={() => setSkillFilter('installed')}
+                className={`px-3 py-1.5 rounded-lg text-sm transition-colors ${skillFilter === 'installed' ? 'bg-white/10 text-white' : 'text-text-secondary hover:text-neutral-300 hover:bg-white/5'}`}
+              >
+                已安装
               </button>
               <button
                 onClick={() => setSkillFilter('personal')}
@@ -316,6 +325,31 @@ export function PluginsView() {
                   ))}
                 </div>
               </div>
+            ) : connectorFilter === 'installed' ? (
+              filteredInstalledConnectors.length === 0 ? (
+                <div className="text-sm text-text-secondary py-8 text-center border border-dashed border-card-border rounded-xl">
+                  还没有已安装的连接器
+                </div>
+              ) : (
+                <div className="mb-4">
+                  <h2 className="text-base font-semibold text-white">已安装</h2>
+                  <p className="text-xs text-text-secondary mt-0.5 mb-4">
+                    通过 claude plugin install 安装的连接器
+                  </p>
+                  <div className="grid grid-cols-2 gap-3">
+                    {filteredInstalledConnectors.map((plugin) => (
+                      <ConnectorCard
+                        key={plugin.id}
+                        plugin={plugin}
+                        pending={pendingIds.has(plugin.id)}
+                        error={errorById[plugin.id]}
+                        onInstall={() => handleInstall(plugin)}
+                        onUninstall={() => handleUninstall(plugin)}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )
             ) : connectorFilter === 'featured' ? (
               <div className="mb-4">
                 <h2 className="text-base font-semibold text-white">精选推荐</h2>
@@ -327,7 +361,12 @@ export function PluginsView() {
                     <FeaturedMcpCard
                       key={server.id}
                       server={server}
-                      installed={catalog.customMcpServers.some((s) => s.name === server.id)}
+                      installed={
+                        catalog.customMcpServers.some((s) => s.name === server.id) ||
+                        catalog.connectors.some(
+                          (c) => c.name === server.id && (c.installed || c.configuredOutsidePlugin),
+                        )
+                      }
                       pending={pendingIds.has(server.id)}
                       error={errorById[server.id]}
                       onAdd={() => handleAddFeatured(server)}
@@ -353,7 +392,29 @@ export function PluginsView() {
               </div>
             )
           ) : activeTab === 'plugins' ? (
-            catalog.thirdPartyPlugins.length === 0 ? (
+            pluginFilter === 'installed' ? (
+              filteredInstalledThirdParty.length === 0 ? (
+                <div className="text-sm text-text-secondary py-8 text-center border border-dashed border-card-border rounded-xl">
+                  还没有已安装的插件
+                </div>
+              ) : (
+                <div className="mb-4">
+                  <h2 className="text-base font-semibold text-white">已安装</h2>
+                  <div className="grid grid-cols-2 gap-3">
+                    {filteredInstalledThirdParty.map((plugin) => (
+                      <ThirdPartyPluginCard
+                        key={plugin.id}
+                        plugin={plugin}
+                        pending={pendingIds.has(plugin.id)}
+                        error={errorById[plugin.id]}
+                        onInstall={() => handleInstall(plugin)}
+                        onUninstall={() => handleUninstall(plugin)}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )
+            ) : catalog.thirdPartyPlugins.length === 0 ? (
               <div className="text-sm text-text-secondary py-8 text-center border border-dashed border-card-border rounded-xl">
                 {'还没有第三方插件市场。可以在终端里运行 claude plugin marketplace add <owner>/<repo> 添加一个新市场，添加后这里会自动显示其中的插件。'}
               </div>
@@ -377,19 +438,25 @@ export function PluginsView() {
           ) : filteredSkills.length > 0 ? (
             <div className="mb-4">
               <h2 className="text-base font-semibold text-white">
-                {skillFilter === 'official' ? '官方目录' : '个人技能'}
+                {skillFilter === 'official'
+                  ? '官方目录'
+                  : skillFilter === 'installed'
+                    ? '已安装'
+                    : '个人技能'}
               </h2>
               <p className="text-xs text-text-secondary mt-0.5 mb-4">
                 {skillFilter === 'official'
                   ? '来自 Claude Code 官方插件市场，按安装量排序 — 非人工精选'
-                  : '存放于 ~/.claude/skills，随 Claude Code 自动生效'}
+                  : skillFilter === 'installed'
+                    ? '通过 claude plugin install 安装的官方技能'
+                    : '存放于 ~/.claude/skills，随 Claude Code 自动生效'}
               </p>
               <div className="grid grid-cols-2 gap-3">
                 {filteredSkills.map((plugin) => (
                   <SkillCard
                     key={plugin.id}
                     plugin={plugin}
-                    manageable={skillFilter === 'official'}
+                    manageable={skillFilter === 'official' || skillFilter === 'installed'}
                     pending={pendingIds.has(plugin.id)}
                     error={errorById[plugin.id]}
                     onInstall={() => handleInstall(plugin)}
@@ -402,7 +469,9 @@ export function PluginsView() {
             <div className="text-sm text-text-secondary py-8 text-center border border-dashed border-card-border rounded-xl">
               {skillFilter === 'personal'
                 ? '还没有个人技能，可以在 ~/.claude/skills 下添加'
-                : '没有匹配的技能'}
+                : skillFilter === 'installed'
+                  ? '还没有已安装的技能'
+                  : '没有匹配的技能'}
             </div>
           )}
         </div>

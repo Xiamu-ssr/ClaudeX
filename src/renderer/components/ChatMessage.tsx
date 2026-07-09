@@ -11,20 +11,22 @@ import {
   AlertTriangle,
 } from 'lucide-react';
 import type { ChatMessage as ChatMessageType, Step, AssistantTurn, MessageAttachment } from '../types/chat';
+import { groupSteps } from '../../shared/groupSteps';
 import { RichText } from './RichText';
-import { ToolUseBlock } from './ToolUseBlock';
+import { ToolUseBlock, FileEditsGroup } from './ToolUseBlock';
 import { FileCard } from './FileCard';
 import { formatDuration } from '../utils/formatDuration';
 
 interface ChatMessageProps {
   message: ChatMessageType;
+  cwd: string;
 }
 
-export function ChatMessage({ message }: ChatMessageProps) {
+export function ChatMessage({ message, cwd }: ChatMessageProps) {
   if (message.role === 'user') {
     return <UserBubble content={message.content} attachments={message.attachments} />;
   }
-  return <AssistantBlock turn={message.turn} />;
+  return <AssistantBlock turn={message.turn} cwd={cwd} />;
 }
 
 function UserBubble({ content, attachments }: { content: string; attachments?: MessageAttachment[] }) {
@@ -58,7 +60,7 @@ function UserBubble({ content, attachments }: { content: string; attachments?: M
   );
 }
 
-function AssistantBlock({ turn }: { turn: AssistantTurn }) {
+function AssistantBlock({ turn, cwd }: { turn: AssistantTurn; cwd: string }) {
   const [stepsCollapsed, setStepsCollapsed] = useState(!turn.isProcessing);
   const wasProcessing = useRef(turn.isProcessing);
 
@@ -109,7 +111,7 @@ function AssistantBlock({ turn }: { turn: AssistantTurn }) {
       {/* Steps (when expanded) */}
       {!stepsCollapsed && (
         <div className="mb-4">
-          <StepsList steps={turn.steps} />
+          <StepsList steps={turn.steps} cwd={cwd} />
         </div>
       )}
 
@@ -145,10 +147,15 @@ function ThinkingIndicator() {
   );
 }
 
-function StepsList({ steps }: { steps: Step[] }) {
+function StepsList({ steps, cwd }: { steps: Step[]; cwd: string }) {
+  const groups = groupSteps(steps);
   return (
     <div className="space-y-1">
-      {steps.map((step, i) => {
+      {groups.map((group, i) => {
+        if (group.kind === 'file-edits') {
+          return <FileEditsGroup key={i} steps={group.steps} cwd={cwd} />;
+        }
+        const step = group.step;
         if (step.type === 'thinking') {
           return (
             <RichText
