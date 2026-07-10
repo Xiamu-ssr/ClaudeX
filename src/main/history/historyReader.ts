@@ -159,7 +159,7 @@ export function listSessionsInProject(
       const stat = fs.statSync(filePath);
       return {
         sessionId,
-        title: deriveSessionTitle(filePath),
+        title: overrides[sessionId]?.title || deriveSessionTitle(filePath),
         lastActiveAt: stat.mtime.toISOString(),
         cwd,
       };

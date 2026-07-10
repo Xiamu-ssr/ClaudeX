@@ -50,6 +50,7 @@ import type {
   RemoveProjectRequest,
   ArchiveSessionRequest,
   RemoveSessionRequest,
+  RenameSessionRequest,
   ShowInFinderRequest,
   ShowInFinderResponse,
   OpenExternalRequest,
@@ -58,6 +59,7 @@ import type {
   CreateWorktreeResponse,
   ForkSessionRequest,
   ForkSessionResponse,
+  CopyToClipboardRequest,
   GetEnvConfigResponse,
   GetAuthStatusResponse,
   CreateTerminalRequest,
@@ -70,6 +72,7 @@ import type {
 
 export interface ElectronAPI {
   platform: string;
+  copyToClipboard: (req: CopyToClipboardRequest) => Promise<void>;
   claude: {
     startOrResumeSession: (req: StartOrResumeSessionRequest) => Promise<StartOrResumeSessionResponse>;
     sendUserMessage: (req: SendUserMessageRequest) => Promise<void>;
@@ -102,6 +105,7 @@ export interface ElectronAPI {
     removeProject: (req: RemoveProjectRequest) => Promise<void>;
     archiveSession: (req: ArchiveSessionRequest) => Promise<void>;
     removeSession: (req: RemoveSessionRequest) => Promise<void>;
+    renameSession: (req: RenameSessionRequest) => Promise<void>;
     showInFinder: (req: ShowInFinderRequest) => Promise<ShowInFinderResponse>;
     openExternal: (req: OpenExternalRequest) => Promise<OpenExternalResponse>;
     createWorktree: (req: CreateWorktreeRequest) => Promise<CreateWorktreeResponse>;

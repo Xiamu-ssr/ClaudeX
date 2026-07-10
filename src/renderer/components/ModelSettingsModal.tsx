@@ -14,6 +14,7 @@ interface EnvRow {
 interface ModelRow {
   id: string;
   label: string;
+  contextWindowTokens: string;
 }
 
 interface EditableProvider {
@@ -24,7 +25,12 @@ interface EditableProvider {
 }
 
 function emptyEditable(): EditableProvider {
-  return { id: null, name: '', envRows: [{ key: '', value: '' }], modelRows: [{ id: '', label: '' }] };
+  return {
+    id: null,
+    name: '',
+    envRows: [{ key: '', value: '' }],
+    modelRows: [{ id: '', label: '', contextWindowTokens: '' }],
+  };
 }
 
 function toEditable(provider: ModelProviderConfig): EditableProvider {
@@ -35,8 +41,12 @@ function toEditable(provider: ModelProviderConfig): EditableProvider {
     envRows: envEntries.length > 0 ? envEntries.map(([key, value]) => ({ key, value })) : [{ key: '', value: '' }],
     modelRows:
       provider.models.length > 0
-        ? provider.models.map((m) => ({ id: m.id, label: m.label }))
-        : [{ id: '', label: '' }],
+        ? provider.models.map((m) => ({
+            id: m.id,
+            label: m.label,
+            contextWindowTokens: m.contextWindowTokens ? String(m.contextWindowTokens) : '',
+          }))
+        : [{ id: '', label: '', contextWindowTokens: '' }],
   };
 }
 
@@ -52,9 +62,16 @@ export function ModelSettingsModal({ onClose }: ModelSettingsModalProps) {
     if (!editing) return;
     const name = editing.name.trim();
     const models = editing.modelRows
-      .map((m) => ({ id: m.id.trim(), label: m.label.trim() }))
+      .map((m) => {
+        const rawWindow = m.contextWindowTokens.trim();
+        const contextWindowTokens = rawWindow ? Number(rawWindow) : undefined;
+        return { id: m.id.trim(), label: m.label.trim(), contextWindowTokens };
+      })
       .filter((m) => m.id && m.label);
     if (!name || models.length === 0) return;
+    if (models.some((m) => m.contextWindowTokens !== undefined && (!Number.isInteger(m.contextWindowTokens) || m.contextWindowTokens <= 0))) {
+      return;
+    }
 
     const env: Record<string, string> = {};
     for (const row of editing.envRows) {
@@ -195,9 +212,15 @@ export function ModelSettingsModal({ onClose }: ModelSettingsModalProps) {
 
               <div>
                 <label className="text-xs text-text-secondary mb-1 block">模型列表</label>
-                <div className="space-y-1.5">
+                <div className="space-y-2">
+                  <div className="grid grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)_132px_28px] items-center gap-2 px-1 text-[11px] text-text-tertiary">
+                    <span>模型 ID</span>
+                    <span>显示名称</span>
+                    <span>上下文窗口 <span className="text-text-tertiary/70">（可选）</span></span>
+                    <span aria-hidden="true" />
+                  </div>
                   {editing.modelRows.map((row, i) => (
-                    <div key={i} className="flex items-center gap-1.5">
+                    <div key={i} className="grid grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)_132px_28px] items-center gap-2">
                       <input
                         value={row.id}
                         onChange={(e) => {
@@ -205,8 +228,8 @@ export function ModelSettingsModal({ onClose }: ModelSettingsModalProps) {
                           modelRows[i] = { ...row, id: e.target.value };
                           setEditing({ ...editing, modelRows });
                         }}
-                        placeholder="模型 ID，如 claude-sonnet-5"
-                        className="flex-1 min-w-0 bg-[#2a2a2c] border border-card-border rounded-lg px-2.5 py-1.5 text-xs text-white outline-none focus:border-neutral-500 transition-colors font-mono"
+                        placeholder="模型 ID"
+                        className="min-w-0 bg-[#2a2a2c] border border-card-border rounded-lg px-2.5 py-1.5 text-xs text-white outline-none focus:border-neutral-500 transition-colors font-mono"
                       />
                       <input
                         value={row.label}
@@ -216,21 +239,40 @@ export function ModelSettingsModal({ onClose }: ModelSettingsModalProps) {
                           setEditing({ ...editing, modelRows });
                         }}
                         placeholder="显示名称"
-                        className="flex-1 min-w-0 bg-[#2a2a2c] border border-card-border rounded-lg px-2.5 py-1.5 text-xs text-white outline-none focus:border-neutral-500 transition-colors"
+                        className="min-w-0 bg-[#2a2a2c] border border-card-border rounded-lg px-2.5 py-1.5 text-xs text-white outline-none focus:border-neutral-500 transition-colors"
+                      />
+                      <input
+                        type="number"
+                        min="1"
+                        step="1"
+                        value={row.contextWindowTokens}
+                        onChange={(e) => {
+                          const modelRows = [...editing.modelRows];
+                          modelRows[i] = { ...row, contextWindowTokens: e.target.value };
+                          setEditing({ ...editing, modelRows });
+                        }}
+                        placeholder="1000000"
+                        className="min-w-0 bg-[#2a2a2c] border border-card-border rounded-lg px-2.5 py-1.5 text-xs text-white outline-none focus:border-neutral-500 transition-colors font-mono"
                       />
                       <button
                         onClick={() =>
                           setEditing({ ...editing, modelRows: editing.modelRows.filter((_, idx) => idx !== i) })
                         }
-                        className="p-1.5 rounded hover:bg-white/5 text-text-tertiary hover:text-red-400 transition-colors shrink-0"
+                        className="justify-self-center p-1.5 rounded hover:bg-white/5 text-text-tertiary hover:text-red-400 transition-colors"
+                        aria-label={`删除模型 ${row.label || row.id || i + 1}`}
                       >
                         <Trash2 size={12} />
                       </button>
                     </div>
                   ))}
                 </div>
+                <p className="mt-1.5 text-[11px] leading-4 text-text-tertiary">
+                  上下文窗口仅用于 Claude Code 的用量计算和自动压缩，不会改变上游模型的真实容量。
+                </p>
                 <button
-                  onClick={() => setEditing({ ...editing, modelRows: [...editing.modelRows, { id: '', label: '' }] })}
+                  onClick={() =>
+                    setEditing({ ...editing, modelRows: [...editing.modelRows, { id: '', label: '', contextWindowTokens: '' }] })
+                  }
                   className="mt-1.5 flex items-center gap-1 text-xs text-text-secondary hover:text-neutral-200 transition-colors"
                 >
                   <Plus size={12} />

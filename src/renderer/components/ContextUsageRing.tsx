@@ -13,23 +13,16 @@ const STROKE = 2.5;
 const RADIUS = (SIZE - STROKE) / 2;
 const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
 
-// Auto-refreshes after each turn (throttled — see sessionStore.ts's turn-completed handler),
-// and hover also fetches on demand if nothing's cached yet (e.g. the throttle window hasn't
-// allowed an automatic fetch yet). An earlier version fired on every single turn-completed and
-// on every session-switch with no throttling, which caused a real regression: /context can take
-// tens of seconds of real wall-clock time in an environment with several MCP servers connected
-// (confirmed by hand — it enumerates every connected server's tool schemas), and while in
-// flight it occupies the session's single stdin stream. sessionStore.ts's isQueryingContext
-// flag plus the throttle together keep this from ever blocking a real message for long or often.
+// `/context` asks Claude Code to count all available tool schemas. It is paused while some
+// compatible gateways bill those count probes as normal inference, so this display remains
+// informational rather than causing a hidden request on hover.
 export function ContextUsageRing() {
   const [hovering, setHovering] = useState(false);
   const usage = useSessionStore((s) => s.contextUsage);
   const isQueryingContext = useSessionStore((s) => s.isQueryingContext);
-  const refreshContextUsage = useSessionStore((s) => s.refreshContextUsage);
 
   const handleMouseEnter = () => {
     setHovering(true);
-    if (!usage && !isQueryingContext) refreshContextUsage();
   };
 
   const percent = usage ? Math.min(100, Math.max(0, usage.usedPercent)) : 0;
@@ -83,7 +76,9 @@ export function ContextUsageRing() {
               </div>
             </>
           ) : (
-            <div className="text-xs text-text-secondary">{isQueryingContext ? '查询中，可能需要几十秒…' : '悬浮以查询上下文用量'}</div>
+            <div className="text-xs text-text-secondary">
+              {isQueryingContext ? '查询中…' : '等待正常回复的用量数据；/context 查询已禁用'}
+            </div>
           )}
         </div>
       )}

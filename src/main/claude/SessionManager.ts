@@ -14,6 +14,7 @@ export class SessionManager {
     model?: string;
     effort?: EffortLevel;
     extraEnv?: Record<string, string>;
+    contextWindowTokens?: number;
   }): ClaudeSession {
     const session = new ClaudeSession({ ...opts, onEvent: this.onEvent });
     this.sessions.set(opts.sessionId, session);

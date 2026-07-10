@@ -307,7 +307,16 @@ if (args[0] === '--version') {
       } else {
         emit({
           type: 'assistant',
-          message: { role: 'assistant', content: [{ type: 'text', text: `fake-reply: ${userText}` }] },
+          message: {
+            role: 'assistant',
+            content: [{ type: 'text', text: `fake-reply: ${userText}` }],
+            usage: {
+              input_tokens: 2000,
+              cache_creation_input_tokens: 1000,
+              cache_read_input_tokens: 9000,
+              output_tokens: 1000,
+            },
+          },
           session_id: sessionId,
         });
         emit({

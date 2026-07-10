@@ -303,8 +303,9 @@ test('model settings modal: add a custom provider, select it, delete it, and fal
   await page.getByPlaceholder('例如：中转 API').fill('测试供应商');
   await page.getByPlaceholder('ANTHROPIC_BASE_URL').fill('ANTHROPIC_BASE_URL');
   await page.getByPlaceholder('https://...').fill('https://example.com/api');
-  await page.getByPlaceholder('模型 ID，如 claude-sonnet-5').fill('custom-model-1');
+  await page.getByPlaceholder('模型 ID').fill('custom-model-1');
   await page.getByPlaceholder('显示名称').fill('自定义模型 1');
+  await page.getByPlaceholder('1000000').fill('262144');
   await page.getByRole('button', { name: '保存' }).click();
 
   // Saved: back on the read-only list view, showing the new provider.

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, nativeTheme } from 'electron';
+import { app, BrowserWindow, clipboard, ipcMain, nativeTheme } from 'electron';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { SessionManager } from './claude/SessionManager';
@@ -6,7 +6,7 @@ import { TerminalManager } from './terminal/TerminalManager';
 import { listProjectDirs, listSessionsInProject, loadHistoricalSession, computeForkCutoffs } from './history/historyReader';
 import { listModelProviders, saveModelProvider, deleteModelProvider } from './modelProviders';
 import { setProjectPinned, setProjectCollapsed, renameProject, removeProject } from './history/projectOverrides';
-import { setSessionArchived, removeSession } from './history/sessionOverrides';
+import { setSessionArchived, removeSession, renameSession } from './history/sessionOverrides';
 import { forkSession } from './history/sessionForker';
 import { loadPluginCatalog, listConfiguredMcpServers, installPlugin, uninstallPlugin, addMcpServer } from './plugins/pluginCatalog';
 import { getClaudeVersion, runDoctor } from './system/version';
@@ -43,10 +43,12 @@ import {
   type RemoveProjectRequest,
   type ArchiveSessionRequest,
   type RemoveSessionRequest,
+  type RenameSessionRequest,
   type ShowInFinderRequest,
   type OpenExternalRequest,
   type CreateWorktreeRequest,
   type ForkSessionRequest,
+  type CopyToClipboardRequest,
   type InstallPluginRequest,
   type UninstallPluginRequest,
   type AddMcpServerRequest,
@@ -60,6 +62,13 @@ declare const MAIN_WINDOW_VITE_DEV_SERVER_URL: string;
 declare const MAIN_WINDOW_VITE_NAME: string;
 
 let mainWindow: BrowserWindow | null = null;
+
+// `/context` asks Claude Code to enumerate and token-count its full tool catalog. Some
+// Anthropic-compatible gateways currently turn those count probes into billable one-token
+// inference calls, so keep this off until the gateway path can distinguish count_tokens.
+// This is intentionally enforced in the main process as well as hidden in the UI below:
+// a stale renderer must never be able to trigger the expensive request.
+const CONTEXT_USAGE_QUERY_ENABLED = false;
 
 const sessionManager = new SessionManager((event) => {
   mainWindow?.webContents.send(IPC.sessionEvent, event);
@@ -114,6 +123,7 @@ ipcMain.handle(IPC.startOrResumeSession, (_event, req: StartOrResumeSessionReque
     model: req.model,
     effort: req.effort,
     extraEnv: req.extraEnv,
+    contextWindowTokens: req.contextWindowTokens,
   });
   return { sessionId };
 });
@@ -209,6 +219,9 @@ ipcMain.handle(IPC.getGitDiff, (_event, req: GetGitDiffRequest) => {
 });
 
 ipcMain.handle(IPC.getContextUsage, async (_event, req: GetContextUsageRequest): Promise<GetContextUsageResponse> => {
+  if (!CONTEXT_USAGE_QUERY_ENABLED) {
+    return { ok: false, message: '已暂停上下文统计，避免兼容网关把 token count 计入推理额度。' };
+  }
   const session = sessionManager.get(req.sessionId);
   if (!session) return { ok: false, message: '没有找到对应会话' };
   try {
@@ -253,6 +266,10 @@ ipcMain.handle(IPC.removeSession, (_event, req: RemoveSessionRequest) => {
   removeSession(req.sessionId);
 });
 
+ipcMain.handle(IPC.renameSession, (_event, req: RenameSessionRequest) => {
+  renameSession(req.sessionId, req.title);
+});
+
 ipcMain.handle(IPC.showInFinder, (_event, req: ShowInFinderRequest) => {
   if (!fs.existsSync(req.path)) {
     return { ok: false, message: '路径不存在' };
@@ -284,6 +301,10 @@ ipcMain.handle(IPC.forkSession, (_event, req: ForkSessionRequest) => {
   if (cutoffs.length === 0) return { ok: false, message: '没有可分叉的完整对话轮次' };
   const latestTurnIndex = cutoffs[cutoffs.length - 1].turnIndex;
   return forkSession(req.cwd, req.sourceSessionId, latestTurnIndex);
+});
+
+ipcMain.handle(IPC.copyToClipboard, (_event, req: CopyToClipboardRequest) => {
+  clipboard.writeText(req.text);
 });
 
 ipcMain.handle(IPC.getEnvConfig, () => {

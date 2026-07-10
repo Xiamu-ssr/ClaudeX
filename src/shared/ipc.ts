@@ -33,10 +33,12 @@ export const IPC = {
   removeProject: 'claude:removeProject',
   archiveSession: 'claude:archiveSession',
   removeSession: 'claude:removeSession',
+  renameSession: 'claude:renameSession',
   showInFinder: 'claude:showInFinder',
   openExternal: 'claude:openExternal',
   createWorktree: 'claude:createWorktree',
   forkSession: 'claude:forkSession',
+  copyToClipboard: 'app:copyToClipboard',
   getEnvConfig: 'claude:getEnvConfig',
   getAuthStatus: 'claude:getAuthStatus',
   createTerminal: 'terminal:create',
@@ -57,6 +59,10 @@ export interface StartOrResumeSessionRequest {
   model?: string;
   effort?: EffortLevel;
   extraEnv?: Record<string, string>;
+  // The capacity Claude Code should assume for a custom model. This is intentionally
+  // separate from provider env: it drives Claude Code's context accounting and compaction
+  // decisions, but cannot change the upstream model's actual capacity.
+  contextWindowTokens?: number;
 }
 export interface StartOrResumeSessionResponse {
   sessionId: string;
@@ -65,6 +71,10 @@ export interface StartOrResumeSessionResponse {
 export interface ModelOption {
   id: string;
   label: string;
+  // Optional because built-in Anthropic models manage their own context-window metadata.
+  // Custom gateway models need an explicit value when their ID is not recognizable to
+  // Claude Code (for example, z-ai/glm-5.2).
+  contextWindowTokens?: number;
 }
 
 // A provider is a named group of models plus environment variable overrides
@@ -158,6 +168,13 @@ export interface ArchiveSessionRequest {
 export interface RemoveSessionRequest {
   sessionId: string;
 }
+// A CCodeBox-only display title. Claude Code stores the transcript and ID locally, but does
+// not expose a stable session-management API for a GUI to rename it, so this is persisted in
+// CCodeBox's sidecar without touching the original JSONL history.
+export interface RenameSessionRequest {
+  sessionId: string;
+  title: string;
+}
 export interface ShowInFinderRequest {
   path: string;
 }
@@ -189,6 +206,10 @@ export interface ForkSessionResponse {
   ok: boolean;
   newSessionId?: string;
   message?: string;
+}
+
+export interface CopyToClipboardRequest {
+  text: string;
 }
 
 export interface LoadHistoricalSessionRequest {
@@ -407,6 +428,13 @@ export interface ContextUsageSnapshot {
   usedPercent: number;
   categories: ContextUsageCategory[];
 }
+
+export interface StreamTokenUsage {
+  inputTokens: number;
+  cacheCreationInputTokens: number;
+  cacheReadInputTokens: number;
+  outputTokens: number;
+}
 export interface GetContextUsageRequest {
   sessionId: string;
 }
@@ -460,10 +488,15 @@ export interface GetAuthStatusResponse {
 }
 
 export type ClaudeSessionEvent =
+  // A raw stream chunk was received while a turn is running. It has no user-visible content
+  // of its own, but it proves the CLI/gateway is still making progress and keeps the UI
+  // watchdog from mistaking a long generation for a dead connection.
+  | { kind: 'turn-progress'; sessionId: string }
   | { kind: 'turn-step-appended'; sessionId: string; step: Step }
   | { kind: 'turn-step-updated'; sessionId: string; index: number; step: Step }
   | { kind: 'turn-response-updated'; sessionId: string; response: string }
   | { kind: 'turn-completed'; sessionId: string; processingTime: number; isError?: boolean }
+  | { kind: 'context-usage-updated'; sessionId: string; usage: ContextUsageSnapshot }
   | { kind: 'process-exited'; sessionId: string; code: number | null }
   | { kind: 'process-error'; sessionId: string; message: string }
   | { kind: 'session-ready'; sessionId: string; slashCommands: string[] };

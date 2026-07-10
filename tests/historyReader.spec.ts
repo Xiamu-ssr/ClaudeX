@@ -259,6 +259,27 @@ test('listSessionsInProject filters out sessions marked removed or archived in t
   }
 });
 
+test('listSessionsInProject prefers CCodeBox’s local display-title override without editing Claude history', () => {
+  const projectsDir = makeTempProjectsDir();
+  const cwd = '/Users/test/proj';
+  try {
+    writeSessionFile(projectsDir, '-Users-test-proj', 'session-1', [
+      { type: 'user', message: { role: 'user', content: '原始 Claude 会话标题' }, cwd, uuid: 'u1' },
+    ]);
+    const overridesPath = path.join(projectsDir, 'session-overrides.json');
+    fs.writeFileSync(overridesPath, JSON.stringify({ 'session-1': { title: '我的重命名会话' } }));
+
+    const sessions = listSessionsInProject(cwd, projectsDir, overridesPath);
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0].title).toBe('我的重命名会话');
+
+    const transcript = fs.readFileSync(path.join(projectsDir, '-Users-test-proj', 'session-1.jsonl'), 'utf8');
+    expect(transcript).toContain('原始 Claude 会话标题');
+  } finally {
+    fs.rmSync(projectsDir, { recursive: true, force: true });
+  }
+});
+
 test('computeForkCutoffs returns one cutoff per turn, with lineCount pointing at the next turn boundary', () => {
   const projectsDir = makeTempProjectsDir();
   const cwd = '/Users/test/proj';

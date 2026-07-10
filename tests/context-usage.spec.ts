@@ -27,6 +27,18 @@ test.describe('context usage ring', () => {
   test.beforeEach(async () => {
     userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ccodebox-test-userdata-'));
     projectsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ccodebox-test-projects-'));
+    fs.writeFileSync(
+      path.join(userDataDir, 'model-providers.json'),
+      JSON.stringify([
+        {
+          id: 'stream-usage-fixture',
+          name: 'Stream usage fixture',
+          builtin: false,
+          env: {},
+          models: [{ id: 'fake-model', label: 'Fake model', contextWindowTokens: 200000 }],
+        },
+      ]),
+    );
 
     app = await electron.launch({
       args: ['.', `--user-data-dir=${userDataDir}`],
@@ -42,29 +54,36 @@ test.describe('context usage ring', () => {
     fs.rmSync(projectsDir, { recursive: true, force: true });
   });
 
-  test('context usage ring auto-populates after the first turn (unthrottled) and reveals category breakdown on hover', async () => {
+  async function selectFakeModel() {
+    await page.getByRole('button', { name: 'Sonnet 5' }).click();
+    const pickerMenu = page.locator('.absolute.bottom-full.right-0');
+    await pickerMenu.getByRole('button', { name: 'Fake model' }).click();
+    await pickerMenu.getByRole('button', { name: 'CLI 默认' }).click();
+  }
+
+  test('context usage ring reads normal response usage without sending /context and reveals token breakdown on hover', async () => {
+    await selectFakeModel();
     // Start a new chat from the home screen.
     const textarea = page.locator('textarea').first();
     await textarea.fill('hello');
     await textarea.press('Enter');
     await expect(page.getByText('fake-reply: hello')).toBeVisible({ timeout: 10000 });
 
-    // The first turn-completed in a session always fires the auto-refresh (the throttle only
-    // blocks a *second* fetch within CONTEXT_REFRESH_THROTTLE_MS of the first) — see
-    // sessionStore.ts's turn-completed handler.
     const ringContainer = page.getByTestId('context-usage-ring');
     await expect(ringContainer.locator('svg[class*="rotate-90"]')).toBeVisible({ timeout: 10000 });
 
-    // Hovering reveals the breakdown for whatever's already cached (no re-fetch needed).
+    // Hovering only reveals metadata that arrived with the normal model response; it must not
+    // send the expensive `/context` local command.
     await ringContainer.hover();
     const tooltip = page.getByTestId('context-usage-tooltip');
     await expect(tooltip).toBeVisible();
-    await expect(tooltip).toContainText('System prompt');
-    await expect(tooltip).toContainText('Messages');
-    await expect(tooltip).toContainText('10.0k');
+    await expect(tooltip).toContainText('13.0k');
+    await expect(tooltip).toContainText('缓存读取');
+    await expect(tooltip).toContainText('输出');
   });
 
-  test('context usage ring does not re-fetch on a second turn within the throttle window', async () => {
+  test('context usage ring refreshes from the second normal response without /context polling', async () => {
+    await selectFakeModel();
     const textarea = page.locator('textarea').first();
     await textarea.fill('first');
     await textarea.press('Enter');
@@ -78,7 +97,7 @@ test.describe('context usage ring', () => {
     await chatInput.press('Enter');
     await expect(page.getByText('fake-reply: second')).toBeVisible({ timeout: 10000 });
 
-    // Still just the cached ring, no stuck "querying" state from a throttled-away second fetch.
+    // The ring is still populated from the second normal response, with no separate query.
     await expect(ringContainer.locator('svg[class*="rotate-90"]')).toBeVisible();
     await ringContainer.hover();
     await expect(page.getByTestId('context-usage-tooltip')).not.toContainText('查询中');

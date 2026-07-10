@@ -50,6 +50,7 @@ import {
   type RemoveProjectRequest,
   type ArchiveSessionRequest,
   type RemoveSessionRequest,
+  type RenameSessionRequest,
   type ShowInFinderRequest,
   type ShowInFinderResponse,
   type OpenExternalRequest,
@@ -58,6 +59,7 @@ import {
   type CreateWorktreeResponse,
   type ForkSessionRequest,
   type ForkSessionResponse,
+  type CopyToClipboardRequest,
   type GetEnvConfigResponse,
   type GetAuthStatusResponse,
   type CreateTerminalRequest,
@@ -70,6 +72,7 @@ import {
 
 contextBridge.exposeInMainWorld('electronAPI', {
   platform: process.platform,
+  copyToClipboard: (req: CopyToClipboardRequest): Promise<void> => ipcRenderer.invoke(IPC.copyToClipboard, req),
   claude: {
     startOrResumeSession: (req: StartOrResumeSessionRequest): Promise<StartOrResumeSessionResponse> =>
       ipcRenderer.invoke(IPC.startOrResumeSession, req),
@@ -118,6 +121,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     removeProject: (req: RemoveProjectRequest): Promise<void> => ipcRenderer.invoke(IPC.removeProject, req),
     archiveSession: (req: ArchiveSessionRequest): Promise<void> => ipcRenderer.invoke(IPC.archiveSession, req),
     removeSession: (req: RemoveSessionRequest): Promise<void> => ipcRenderer.invoke(IPC.removeSession, req),
+    renameSession: (req: RenameSessionRequest): Promise<void> => ipcRenderer.invoke(IPC.renameSession, req),
     showInFinder: (req: ShowInFinderRequest): Promise<ShowInFinderResponse> =>
       ipcRenderer.invoke(IPC.showInFinder, req),
     openExternal: (req: OpenExternalRequest): Promise<OpenExternalResponse> =>

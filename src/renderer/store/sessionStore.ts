@@ -22,7 +22,7 @@ export type RightPanelTab = 'files' | 'review' | 'terminal' | 'browser';
 // (no new step/response delta), treat it as hung and surface an error rather than leaving
 // the "..." indicator spinning forever. Catches any hang cause, known or not yet identified —
 // see CCodeBox project memory for the investigation that motivated this.
-const WATCHDOG_TIMEOUT_MS = 90_000;
+const WATCHDOG_TIMEOUT_MS = 300_000;
 
 interface SessionStore {
   activeSessionId: string | null;
@@ -61,6 +61,7 @@ interface SessionStore {
   removeProject: (cwd: string) => Promise<void>;
   archiveSession: (sessionId: string) => Promise<void>;
   removeSession: (sessionId: string) => Promise<void>;
+  renameSession: (sessionId: string, title: string) => Promise<void>;
   showInFinder: (path: string) => Promise<ShowInFinderResponse>;
   createWorktree: (cwd: string, branch: string) => Promise<CreateWorktreeResponse>;
   forkSession: (cwd: string, sessionId: string) => Promise<ForkSessionResponse>;
@@ -86,15 +87,16 @@ function emptySession(id: string, cwd: string, projectName: string): Session {
   return { id, cwd, title: '新对话', projectName, lastActiveTime: '刚刚', messages: [] };
 }
 
+function contextWindowForModel(provider: ModelProviderConfig | undefined, modelId: string): number | undefined {
+  return provider?.models.find((model) => model.id === modelId)?.contextWindowTokens;
+}
+
 export const useSessionStore = create<SessionStore>((set, get) => {
   // Tracks a sessionId currently undergoing a deliberate, user/store-initiated shutdown
   // (explicit "stop" or the stop+respawn done by changeModelMidConversation) so the
   // process-exited event that naturally follows isn't mistaken for a crash.
   let pendingStopSessionId: string | null = null;
   let watchdogTimer: ReturnType<typeof setTimeout> | null = null;
-  // Throttles the automatic context-usage refresh below — see its use-site comment.
-  let lastContextFetchAt: number | null = null;
-  const CONTEXT_REFRESH_THROTTLE_MS = 60_000;
 
   const clearWatchdog = () => {
     if (watchdogTimer) {
@@ -130,7 +132,7 @@ export const useSessionStore = create<SessionStore>((set, get) => {
   const armWatchdog = (sessionId: string) => {
     clearWatchdog();
     watchdogTimer = setTimeout(() => {
-      failInFlightTurn(sessionId, '⚠️ 响应超时（90 秒无新进展），连接可能已中断，请重试。');
+      failInFlightTurn(sessionId, '⚠️ 响应超时（5 分钟未收到 Claude Code 输出），连接可能已中断，请重试。');
     }, WATCHDOG_TIMEOUT_MS);
   };
 
@@ -154,6 +156,19 @@ export const useSessionStore = create<SessionStore>((set, get) => {
 
     if (event.kind === 'session-ready') {
       set({ slashCommands: event.slashCommands });
+      return;
+    }
+
+    if (event.kind === 'turn-progress') {
+      if (state.isProcessing) armWatchdog(event.sessionId);
+      return;
+    }
+
+    // This comes from the usage metadata already attached to a normal Claude response.
+    // It deliberately does not issue `/context`, which some compatible gateways misroute as
+    // billable one-token inference calls.
+    if (event.kind === 'context-usage-updated') {
+      set({ contextUsage: event.usage });
       return;
     }
 
@@ -187,13 +202,10 @@ export const useSessionStore = create<SessionStore>((set, get) => {
       get().loadProjectList();
     }
 
-    // Decided up front so the invalidation below and the actual trigger after the `set` stay
-    // consistent: only clear the cached ring value if we're also about to refresh it — a
-    // throttled-away turn keeps showing the last (slightly stale) value instead of flickering
-    // to the empty placeholder and back for no reason.
-    const willAutoRefreshContext =
-      event.kind === 'turn-completed' &&
-      (lastContextFetchAt === null || Date.now() - lastContextFetchAt > CONTEXT_REFRESH_THROTTLE_MS);
+    // Context accounting is disabled at the main-process boundary while gateway providers
+    // incorrectly bill Claude Code's tool-count probes as inference. Keep the normal chat
+    // lifecycle independent of that optional display metric.
+    const willAutoRefreshContext = false;
 
     set((s) => {
       if (!s.activeSession) return s;
@@ -340,6 +352,11 @@ export const useSessionStore = create<SessionStore>((set, get) => {
       await get().loadProjectList();
     },
 
+    renameSession: async (sessionId, title) => {
+      await window.electronAPI.claude.renameSession({ sessionId, title });
+      await get().loadProjectList();
+    },
+
     showInFinder: async (path) => {
       return window.electronAPI.claude.showInFinder({ path });
     },
@@ -396,6 +413,7 @@ export const useSessionStore = create<SessionStore>((set, get) => {
         model: modelId,
         effort: effort ?? undefined,
         extraEnv: provider?.env,
+        contextWindowTokens: contextWindowForModel(provider, modelId),
       });
       set({ selectedProviderId: providerId, selectedModelId: modelId, effortLevel: effort, isProcessing: false });
     },
@@ -409,6 +427,7 @@ export const useSessionStore = create<SessionStore>((set, get) => {
         model: selectedModelId,
         effort: effortLevel ?? undefined,
         extraEnv: provider?.env,
+        contextWindowTokens: contextWindowForModel(provider, selectedModelId),
       });
       set({
         activeSessionId: sessionId,
@@ -439,6 +458,7 @@ export const useSessionStore = create<SessionStore>((set, get) => {
         model: selectedModelId,
         effort: effortLevel ?? undefined,
         extraEnv: provider?.env,
+        contextWindowTokens: contextWindowForModel(provider, selectedModelId),
       });
       set({ activeSessionId: sessionId, activeSession: session, isProcessing: false, contextUsage: null, slashCommands: [], queuedMessages: [] });
     },
@@ -507,7 +527,6 @@ export const useSessionStore = create<SessionStore>((set, get) => {
     refreshContextUsage: async () => {
       const state = get();
       if (!state.activeSessionId || state.isProcessing || state.isQueryingContext) return;
-      lastContextFetchAt = Date.now();
       set({ isQueryingContext: true });
       try {
         const result = await window.electronAPI.claude.getContextUsage({ sessionId: state.activeSessionId });

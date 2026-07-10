@@ -32,9 +32,7 @@ function projectRow(page: Page, name: string) {
 }
 
 async function projectOrder(page: Page): Promise<string[]> {
-  // Scoped to span.truncate inside div.relative to exclude the user-info section,
-  // which is also div.relative but uses div.truncate (not span.truncate) for its text.
-  return page.locator('aside div.relative span.truncate').evaluateAll((els) =>
+  return page.locator('aside [data-testid="project-row"] span.truncate').evaluateAll((els) =>
     els.map((el) => el.textContent?.trim() ?? '')
   );
 }
@@ -134,6 +132,19 @@ test.describe('sidebar: project menu', () => {
 
     await expect(page.locator('aside')).not.toContainText('hello from a');
     await expect(page.locator('aside')).toContainText('hello from b');
+  });
+
+  test('session hover menu offers a local ID copy and persistent display-title rename', async () => {
+    await page.getByRole('button', { name: 'hello from b' }).hover();
+    await page.locator('aside').getByLabel('会话菜单').first().click();
+
+    await expect(page.getByRole('button', { name: '复制会话 ID' })).toBeVisible();
+    await page.getByRole('button', { name: '重命名' }).click();
+
+    const renameInput = page.locator('aside input').last();
+    await renameInput.fill('已整理的会话');
+    await renameInput.press('Enter');
+    await expect(page.locator('aside')).toContainText('已整理的会话');
   });
 });
 

@@ -8,7 +8,14 @@ import {
 } from '../../shared/eventTranslator';
 import { NdjsonLineSplitter } from '../../shared/ndjson';
 import type { AssistantTurn, ChatMessage } from '../../shared/chat';
-import type { ClaudeSessionEvent, EffortLevel, OutgoingAttachment, PermissionMode } from '../../shared/ipc';
+import type {
+  ClaudeSessionEvent,
+  ContextUsageSnapshot,
+  EffortLevel,
+  OutgoingAttachment,
+  PermissionMode,
+  StreamTokenUsage,
+} from '../../shared/ipc';
 
 export interface ClaudeSessionOptions {
   sessionId: string;
@@ -18,7 +25,15 @@ export interface ClaudeSessionOptions {
   model?: string;
   effort?: EffortLevel;
   extraEnv?: Record<string, string>;
+  contextWindowTokens?: number;
   onEvent: (event: ClaudeSessionEvent) => void;
+}
+
+interface RawResponseUsage {
+  input_tokens?: unknown;
+  cache_creation_input_tokens?: unknown;
+  cache_read_input_tokens?: unknown;
+  output_tokens?: unknown;
 }
 
 // Electron apps (especially launched via Finder/Dock) often inherit a minimal PATH that
@@ -57,6 +72,7 @@ export class ClaudeSession {
   private readonly model?: string;
   private readonly effort?: EffortLevel;
   private readonly extraEnv: Record<string, string>;
+  private readonly contextWindowTokens?: number;
   private readonly onEvent: (event: ClaudeSessionEvent) => void;
 
   private proc: ChildProcessWithoutNullStreams | null = null;
@@ -64,6 +80,7 @@ export class ClaudeSession {
   private currentAcc: TurnAccumulator | null = null;
   private pendingContextQuery: { resolve: (v: string) => void; reject: (e: Error) => void } | null = null;
   private contextQueryText: string | undefined;
+  private latestUsage: StreamTokenUsage | null = null;
 
   messages: ChatMessage[] = [];
 
@@ -75,6 +92,7 @@ export class ClaudeSession {
     this.model = opts.model;
     this.effort = opts.effort;
     this.extraEnv = opts.extraEnv ?? {};
+    this.contextWindowTokens = normalizeContextWindowTokens(opts.contextWindowTokens);
     this.onEvent = opts.onEvent;
   }
 
@@ -107,7 +125,11 @@ export class ClaudeSession {
     this.proc = spawn(bin, args, {
       cwd: this.cwd,
       stdio: ['pipe', 'pipe', 'pipe'],
-      env: { ...process.env, ...this.extraEnv },
+      env: {
+        ...process.env,
+        ...this.extraEnv,
+        ...(this.contextWindowTokens ? { CLAUDE_CODE_MAX_CONTEXT_TOKENS: String(this.contextWindowTokens) } : {}),
+      },
     });
 
     this.proc.stdout.on('data', (chunk: Buffer) => this.onStdoutChunk(chunk));
@@ -129,6 +151,7 @@ export class ClaudeSession {
 
     this.messages.push({ role: 'user', content: text });
     this.currentAcc = createTurnAccumulator();
+    this.latestUsage = null;
     this.messages.push({
       role: 'assistant',
       turn: { processingTime: 0, steps: [], response: '', isProcessing: true },
@@ -226,6 +249,22 @@ export class ClaudeSession {
       return;
     }
 
+    // `--include-partial-messages` produces stream_event lines while a model is thinking or
+    // generating. CCodeBox intentionally does not render their raw payloads, but treating
+    // them as a heartbeat avoids declaring a healthy long turn dead after an arbitrary 90 s.
+    // api_retry has the same meaning: Claude Code is still actively retrying the request.
+    if (
+      this.currentAcc &&
+      (parsed.type === 'stream_event' || (parsed.type === 'system' && parsed.subtype === 'api_retry'))
+    ) {
+      this.onEvent({ kind: 'turn-progress', sessionId: this.sessionId });
+    }
+
+    if (parsed.type === 'assistant') {
+      const usage = parseResponseUsage((parsed.message as { usage?: RawResponseUsage } | undefined)?.usage);
+      if (usage) this.latestUsage = usage;
+    }
+
     if (!this.currentAcc) this.currentAcc = createTurnAccumulator();
     const currentTurn = this.getCurrentTurn();
     const { deltas, turnComplete } = applyLine(this.currentAcc, parsed);
@@ -267,5 +306,54 @@ export class ClaudeSession {
     turn.isError = isError;
     this.currentAcc = null;
     this.onEvent({ kind: 'turn-completed', sessionId: this.sessionId, processingTime, isError });
+    const usage = this.contextUsageSnapshot();
+    if (usage) this.onEvent({ kind: 'context-usage-updated', sessionId: this.sessionId, usage });
   }
+
+  private contextUsageSnapshot(): ContextUsageSnapshot | null {
+    if (!this.latestUsage || !this.contextWindowTokens) return null;
+    const { inputTokens, cacheCreationInputTokens, cacheReadInputTokens, outputTokens } = this.latestUsage;
+    const usedTokens = inputTokens + cacheCreationInputTokens + cacheReadInputTokens + outputTokens;
+    const totalTokens = this.contextWindowTokens;
+    const usedPercent = Math.min(100, (usedTokens / totalTokens) * 100);
+    return {
+      modelLabel: this.model ?? '当前模型',
+      usedTokens,
+      totalTokens,
+      usedPercent,
+      categories: [
+        { label: '输入', tokens: inputTokens, percent: percentOf(inputTokens, usedTokens) },
+        { label: '缓存写入', tokens: cacheCreationInputTokens, percent: percentOf(cacheCreationInputTokens, usedTokens) },
+        { label: '缓存读取', tokens: cacheReadInputTokens, percent: percentOf(cacheReadInputTokens, usedTokens) },
+        { label: '输出', tokens: outputTokens, percent: percentOf(outputTokens, usedTokens) },
+      ].filter((category) => category.tokens > 0),
+    };
+  }
+}
+
+function normalizeContextWindowTokens(value: number | undefined): number | undefined {
+  return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : undefined;
+}
+
+function parseResponseUsage(raw: RawResponseUsage | undefined): StreamTokenUsage | null {
+  if (!raw) return null;
+  const inputTokens = nonNegativeNumber(raw.input_tokens);
+  const cacheCreationInputTokens = nonNegativeNumber(raw.cache_creation_input_tokens);
+  const cacheReadInputTokens = nonNegativeNumber(raw.cache_read_input_tokens);
+  const outputTokens = nonNegativeNumber(raw.output_tokens);
+  if (inputTokens === null && cacheCreationInputTokens === null && cacheReadInputTokens === null && outputTokens === null) return null;
+  return {
+    inputTokens: inputTokens ?? 0,
+    cacheCreationInputTokens: cacheCreationInputTokens ?? 0,
+    cacheReadInputTokens: cacheReadInputTokens ?? 0,
+    outputTokens: outputTokens ?? 0,
+  };
+}
+
+function nonNegativeNumber(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null;
+}
+
+function percentOf(part: number, total: number): number {
+  return total > 0 ? (part / total) * 100 : 0;
 }

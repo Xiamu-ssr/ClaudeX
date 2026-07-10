@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
-import { SquarePen, Search, AtSign, FileText, User, Settings, Ellipsis, ChevronRight, ChevronDown, Pin } from 'lucide-react';
+import { SquarePen, Search, AtSign, User, Settings, Ellipsis, ChevronRight, ChevronDown, Pin, Folder, FolderOpen } from 'lucide-react';
 import type { AppView } from '../App';
 import { useSessionStore } from '../store/sessionStore';
 import type { AuthStatus } from '../../shared/ipc';
 import { ProjectContextMenu } from './ProjectContextMenu';
+import { SessionContextMenu } from './SessionContextMenu';
 
 function formatRelativeTime(iso: string): string {
   const diffMs = Date.now() - new Date(iso).getTime();
@@ -14,6 +15,10 @@ function formatRelativeTime(iso: string): string {
   if (hours < 24) return `${hours} 时`;
   const days = Math.round(hours / 24);
   return `${days} 天`;
+}
+
+function sessionMenuKey(cwd: string, sessionId: string): string {
+  return `${cwd}\u0000${sessionId}`;
 }
 
 // `claude auth status --json` never returns a display name/email/subscription tier — those
@@ -44,6 +49,10 @@ export function Sidebar({ currentView, onNavigate }: SidebarProps) {
   const [openMenuCwd, setOpenMenuCwd] = useState<string | null>(null);
   const [renamingCwd, setRenamingCwd] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
+  const [openSessionMenuKey, setOpenSessionMenuKey] = useState<string | null>(null);
+  const [renamingSessionKey, setRenamingSessionKey] = useState<string | null>(null);
+  const [renamingSessionId, setRenamingSessionId] = useState<string | null>(null);
+  const [sessionRenameValue, setSessionRenameValue] = useState('');
 
   const projects = useSessionStore((s) => s.projects);
   const sessionsByProject = useSessionStore((s) => s.sessionsByProject);
@@ -53,6 +62,7 @@ export function Sidebar({ currentView, onNavigate }: SidebarProps) {
   const loadModelProviders = useSessionStore((s) => s.loadModelProviders);
   const setSelectedProjectCwd = useSessionStore((s) => s.setSelectedProjectCwd);
   const renameProject = useSessionStore((s) => s.renameProject);
+  const renameSession = useSessionStore((s) => s.renameSession);
   const setProjectCollapsed = useSessionStore((s) => s.setProjectCollapsed);
 
   useEffect(() => {
@@ -85,6 +95,15 @@ export function Sidebar({ currentView, onNavigate }: SidebarProps) {
     if (trimmed) renameProject(cwd, trimmed);
   };
 
+  const commitSessionRename = () => {
+    if (renamingSessionId === null) return;
+    const sessionId = renamingSessionId;
+    const trimmed = sessionRenameValue.trim();
+    setRenamingSessionKey(null);
+    setRenamingSessionId(null);
+    if (trimmed) void renameSession(sessionId, trimmed);
+  };
+
   const query = searchQuery.trim().toLowerCase();
   const isFiltering = searchOpen && query.length > 0;
 
@@ -114,28 +133,28 @@ export function Sidebar({ currentView, onNavigate }: SidebarProps) {
   });
 
   return (
-    <aside className="w-60 bg-black/20 flex flex-col h-full shrink-0 relative border-r border-white/[0.12]">
+    <aside className="w-60 bg-black/20 flex flex-col h-full shrink-0 relative border-r border-white/[0.10]">
       {/* Traffic light spacing */}
       <div className="h-[52px] drag shrink-0" />
 
       {/* Scrollable middle section */}
       <div className="flex-1 overflow-y-auto min-h-0">
         {/* Menu items */}
-        <nav className="px-3 space-y-0.5">
+        <nav className="px-4 space-y-1">
           <button
             onClick={() => onNavigate('home')}
-            className="no-drag w-full flex items-center gap-3 px-2 py-1.5 rounded-lg text-sm text-white hover:bg-white/5 transition-colors"
+            className="no-drag w-full flex items-center gap-3 px-2.5 py-2 rounded-lg text-[15px] font-medium text-white hover:bg-white/5 transition-colors"
           >
-            <SquarePen size={16} strokeWidth={1.8} />
+            <SquarePen size={18} strokeWidth={1.8} />
             新对话
           </button>
           <button
             onClick={toggleSearch}
-            className={`no-drag w-full flex items-center gap-3 px-2 py-1.5 rounded-lg text-sm transition-colors ${
+            className={`no-drag w-full flex items-center gap-3 px-2.5 py-2 rounded-lg text-[15px] font-medium transition-colors ${
               searchOpen ? 'bg-white/8 text-white' : 'text-white hover:bg-white/5'
             }`}
           >
-            <Search size={16} strokeWidth={1.8} />
+            <Search size={18} strokeWidth={1.8} />
             搜索
           </button>
           {searchOpen && (
@@ -151,18 +170,18 @@ export function Sidebar({ currentView, onNavigate }: SidebarProps) {
           )}
           <button
             onClick={() => onNavigate('plugins')}
-            className={`no-drag w-full flex items-center gap-3 px-2 py-1.5 rounded-lg text-sm transition-colors ${
+            className={`no-drag w-full flex items-center gap-3 px-2.5 py-2 rounded-lg text-[15px] font-medium transition-colors ${
               currentView === 'plugins' ? 'bg-white/8 text-white' : 'text-white hover:bg-white/5'
             }`}
           >
-            <AtSign size={16} strokeWidth={1.8} />
+            <AtSign size={18} strokeWidth={1.8} />
             插件
           </button>
         </nav>
 
         {/* Projects */}
-        <div className="mt-6 px-3">
-          <div className="text-xs text-white/50 font-medium px-2 mb-2">
+        <div className="mt-8 px-4">
+          <div className="text-[13px] text-white/45 font-medium px-2.5 mb-2">
             项目
           </div>
           {isFiltering && visibleProjects.length === 0 ? (
@@ -171,11 +190,11 @@ export function Sidebar({ currentView, onNavigate }: SidebarProps) {
             <div className="space-y-0.5">
               {visibleProjects.map((project) => (
                 <div key={project.cwd}>
-                  <div className="no-drag group/project relative flex items-center rounded-lg hover:bg-white/5 transition-colors">
+                  <div data-testid="project-row" className="no-drag group/project relative flex items-center rounded-lg hover:bg-white/5 transition-colors">
                     <button
                       onClick={() => toggleCollapsed(project.cwd, project.collapsed)}
                       aria-label={project.collapsed ? '展开项目' : '折叠项目'}
-                      className="p-1.5 shrink-0 opacity-0 group-hover/project:opacity-100 transition-opacity text-neutral-500 hover:text-neutral-300"
+                      className="p-1.5 shrink-0 text-neutral-500 hover:text-neutral-300"
                     >
                       {project.collapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
                     </button>
@@ -195,10 +214,14 @@ export function Sidebar({ currentView, onNavigate }: SidebarProps) {
                     ) : (
                       <button
                         onClick={() => setSelectedProjectCwd(project.cwd)}
-                        className="flex-1 min-w-0 flex items-center gap-2 px-1 py-1.5 rounded-lg text-sm text-white transition-colors text-left"
+                        className="flex-1 min-w-0 flex items-center gap-2 px-1 py-1.5 rounded-lg text-[15px] font-medium text-white transition-colors text-left"
                       >
                         {project.pinned && <Pin size={12} className="shrink-0 text-white/50" strokeWidth={1.8} />}
-                        <FileText size={16} strokeWidth={1.8} className="shrink-0" />
+                        {project.collapsed ? (
+                          <Folder size={18} strokeWidth={1.7} className="shrink-0 text-white/80" />
+                        ) : (
+                          <FolderOpen size={18} strokeWidth={1.7} className="shrink-0 text-white/80" />
+                        )}
                         <span className="truncate">{project.displayName}</span>
                       </button>
                     )}
@@ -227,25 +250,65 @@ export function Sidebar({ currentView, onNavigate }: SidebarProps) {
 
                   {!project.collapsed &&
                     visibleSessions(project.cwd).map((session) => (
-                      <button
-                        key={session.sessionId}
-                        onClick={() => handleOpenSession(project.cwd, session.sessionId)}
-                        className={`no-drag w-full flex items-center gap-2 pl-8 pr-2 py-1.5 rounded-lg text-sm transition-colors ${
+                      <div
+                        key={sessionMenuKey(project.cwd, session.sessionId)}
+                        className={`no-drag group/session relative flex items-center rounded-lg transition-colors ${
                           currentView === 'chat' && activeSessionId === session.sessionId
                             ? 'bg-white/8 text-white'
                             : 'text-white/70 hover:bg-white/5'
                         }`}
                       >
-                        <span className="truncate flex-1 text-left text-[13px]">{session.title}</span>
-                        <span className="text-xs text-white/50 shrink-0">
-                          {formatRelativeTime(session.lastActiveAt)}
-                        </span>
-                      </button>
+                        {renamingSessionKey === sessionMenuKey(project.cwd, session.sessionId) ? (
+                          <input
+                            autoFocus
+                            value={sessionRenameValue}
+                            onChange={(e) => setSessionRenameValue(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') commitSessionRename();
+                              if (e.key === 'Escape') {
+                                setRenamingSessionKey(null);
+                                setRenamingSessionId(null);
+                              }
+                            }}
+                            onBlur={commitSessionRename}
+                            className="ml-[50px] flex-1 min-w-0 bg-card border border-card-border rounded-md px-2 py-1 text-[13px] text-white outline-none focus:border-neutral-500"
+                          />
+                        ) : (
+                          <button
+                            onClick={() => handleOpenSession(project.cwd, session.sessionId)}
+                            className="flex-1 min-w-0 flex items-center gap-2 pl-[50px] pr-1.5 py-2 text-sm transition-colors"
+                          >
+                            <span className="truncate flex-1 text-left text-[13px]">{session.title}</span>
+                            <span className="text-xs text-white/45 shrink-0 opacity-0 group-hover/session:opacity-100 transition-opacity">
+                              {formatRelativeTime(session.lastActiveAt)}
+                            </span>
+                          </button>
+                        )}
+                        <button
+                          onClick={() => setOpenSessionMenuKey(sessionMenuKey(project.cwd, session.sessionId))}
+                          aria-label="会话菜单"
+                          className="mr-1 p-1 shrink-0 opacity-0 group-hover/session:opacity-100 text-neutral-500 hover:text-neutral-200 transition-opacity"
+                        >
+                          <Ellipsis size={15} />
+                        </button>
+                        {openSessionMenuKey === sessionMenuKey(project.cwd, session.sessionId) && (
+                          <SessionContextMenu
+                            sessionId={session.sessionId}
+                            onClose={() => setOpenSessionMenuKey(null)}
+                            onStartRename={() => {
+                              setSessionRenameValue(session.title);
+                              setRenamingSessionKey(sessionMenuKey(project.cwd, session.sessionId));
+                              setRenamingSessionId(session.sessionId);
+                              setOpenSessionMenuKey(null);
+                            }}
+                          />
+                        )}
+                      </div>
                     ))}
                   {!project.collapsed && hiddenSessionCount(project.cwd) > 0 && (
                     <button
                       onClick={() => setExpandedSessionLists((prev) => ({ ...prev, [project.cwd]: true }))}
-                      className="no-drag w-full flex items-center gap-2 pl-8 pr-2 py-1.5 rounded-lg text-xs text-white/50 hover:bg-white/5 hover:text-neutral-300 transition-colors"
+                      className="no-drag w-full flex items-center gap-2 pl-[50px] pr-2 py-2 rounded-lg text-xs text-white/50 hover:bg-white/5 hover:text-neutral-300 transition-colors"
                     >
                       显示更多（还有 {hiddenSessionCount(project.cwd)} 个）
                     </button>

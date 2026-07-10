@@ -6,6 +6,7 @@ import { app } from 'electron';
 export interface SessionOverride {
   archived?: boolean;
   removed?: boolean;
+  title?: string;
 }
 export type SessionOverrides = Record<string, SessionOverride>;
 
@@ -44,5 +45,15 @@ export function setSessionArchived(sessionId: string, configPath: string = defau
 export function removeSession(sessionId: string, configPath: string = defaultConfigPath()): void {
   const overrides = readSessionOverrides(configPath);
   overrides[sessionId] = { ...overrides[sessionId], removed: true };
+  writeSessionOverrides(overrides, configPath);
+}
+
+export function renameSession(sessionId: string, title: string, configPath: string = defaultConfigPath()): void {
+  const overrides = readSessionOverrides(configPath);
+  const trimmed = title.trim();
+  const next = { ...overrides[sessionId] };
+  if (trimmed) next.title = trimmed;
+  else delete next.title;
+  overrides[sessionId] = next;
   writeSessionOverrides(overrides, configPath);
 }
